@@ -26,21 +26,36 @@ local function connect(self)
     return conn
 end
 
+-- Drops a connection's callbacks. The firmware's close() frees the C slot but
+-- keeps the Lua callbacks referenced, and with them the request's state and
+-- body parts; it releases them only after a failure it reports itself. Safe
+-- on a released connection.
+local function detach(c)
+    c:setRequestCallback(nil)
+    c:setRequestCompleteCallback(nil)
+    c:setConnectionClosedCallback(nil)
+end
+
 -- Ends a request: marks it finished first (so late firmware callbacks do
--- nothing), frees its slot, and returns or closes its connection.
+-- nothing), frees its slot, and returns or closes its connection, detached.
 function Pool:finish(state, keep)
     if state.finished then return end
     state.finished = true
     self.active = self.active - 1
     self.reqs[state] = nil
     local conn = state.conn
+    state.conn = nil
     if conn then
+        detach(conn)
         if keep then self.idle[#self.idle + 1] = conn else conn:close() end
     end
 end
 
 function Pool:dropIdle()
-    for _, c in ipairs(self.idle) do c:close() end
+    for _, c in ipairs(self.idle) do
+        detach(c)
+        c:close()
+    end
     self.idle = {}
 end
 
@@ -95,6 +110,7 @@ function Pool:send(path, headers, state, mayRetry, fresh)
     -- A reused connection that failed before any data: retry once on a fresh
     -- connection, discarding every idle one (they are likely all dead).
     local function retry()
+        detach(conn)
         conn:close()
         return pool:send(path, headers, state, false, true)
     end
@@ -106,13 +122,20 @@ function Pool:send(path, headers, state, mayRetry, fresh)
         if state.finished then return end
         local status, hdrs = conn:getResponseStatus(), conn:getResponseHeaders() or {}
         local c = hdrs["connection"]
+        local okBody, body = pcall(table.concat, parts)
+        parts = nil
+        if not okBody then -- out of memory joining the parts
+            pool:finish(state, false)
+            return state.done(false, nil, "Page too large for memory")
+        end
         pool:finish(state, not (c and c:lower():find("close", 1, true)))
-        state.done(true, status, table.concat(parts), hdrs)
+        state.done(true, status, body, hdrs)
     end)
     conn:setConnectionClosedCallback(function()
         if state.finished then return end
         if reused and mayRetry and state.total == 0 then return retry() end
         local err = conn:getError() or "Connection closed"
+        detach(conn)
         state.conn = nil -- the firmware already released it
         pool:finish(state, false)
         state.done(false, nil, err)

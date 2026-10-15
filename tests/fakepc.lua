@@ -17,7 +17,7 @@ local KEYCODE = {
 function M.new()
     local F = {
         texts = {}, logs = {}, toasts = {}, menu = {}, events = {}, inputs = {}, confirms = {},
-        requests = {}, pending = {}, config = {}, conns = 0,
+        requests = {}, pending = {}, config = {}, conns = 0, made = {},
         netStatus = 1, synced = true, epoch = 1792000000, ms = 0,
     }
     local fs, files = fakes.fs()
@@ -92,7 +92,9 @@ function M.new()
     function network.http.new(host, port, tls)
         if F.poolFull then return nil, "HTTP connection pool full or out of memory" end
         F.conns = F.conns + 1
+        -- c.cb holds the three callbacks (req, done, closed); setting nil clears one.
         local c = { host = host, port = port, tls = tls, cb = {}, released = false }
+        F.made[#F.made + 1] = c
         function c:setKeepAlive(v) self.keep = v end
         function c:setConnectTimeout() end
         function c:setReadTimeout() end
