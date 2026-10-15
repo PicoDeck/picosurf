@@ -38,6 +38,11 @@ const STRUCTURAL = new Set(["ul", "ol", "menu", "pre", "table", "blockquote"]);
 const DROPPED_SCHEMES = /^(javascript|mailto|tel|sms|data):/i;
 const GEMTEXT_PREFIX = /^(=>|#|\* |>|```)/;
 
+/** Makes a text line that starts like gemtext syntax plain text, by prefixing a space. */
+export function escapeLine(line: string): string {
+  return GEMTEXT_PREFIX.test(line) ? " " + line : line;
+}
+
 export function toGemtext(root: Element, opts: ConvertOptions): string {
   const converter = new Converter(opts);
   converter.container(root, false);
@@ -354,7 +359,7 @@ class Converter {
         })
         .join("");
       const text = marked.split(BR).map(collapse).filter(Boolean);
-      if (kind === "para") out.push(...text.map((l) => (GEMTEXT_PREFIX.test(l) ? " " + l : l)));
+      if (kind === "para") out.push(...text.map(escapeLine));
       else if (kind === "quote") out.push(...text.map((l) => `> ${l}`));
       else out.push(marker + text.join(" "));
       for (const [url, { n, label }] of used) out.push(`=> ${url} [${n}] ${label}`);

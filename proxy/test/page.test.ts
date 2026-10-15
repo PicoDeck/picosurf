@@ -28,6 +28,11 @@ describe("renderPage", () => {
     expect(page.gemtext).toBe("# Links\n\n=> https://example.com/a A\n\nShort.\n");
   });
 
+  it("escapes a byline line that looks like gemtext syntax", () => {
+    const html = articleHtml().replace('content="Example Site"', 'content="```Site"');
+    expect(renderPage(html, URL_, "reader").gemtext.split("\n")[1]).toBe(" ```Site - Jane Doe - 2026-10-12");
+  });
+
   it("keeps a term whose id looks like a byline in the body, not the byline", () => {
     const lorem = articleHtml().match(/<p>(.*?)<\/p>/)![1];
     const html = `<html><head><title>Glossary</title></head><body><article><h1>Glossary</h1><p>${lorem}</p>

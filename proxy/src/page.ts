@@ -4,7 +4,7 @@
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import { findFeedLink } from "./feed";
-import { toGemtext } from "./html2gmi";
+import { escapeLine, toGemtext } from "./html2gmi";
 import { collapse, hostPath } from "./text";
 
 export type PageMode = "reader" | "full";
@@ -167,7 +167,7 @@ function deeperThan(root: Element, limit: number): boolean {
 }
 
 function header(title: string, byline: string): string {
-  return `# ${title}\n` + (byline ? `${byline}\n` : "") + "\n";
+  return `# ${title}\n` + (byline ? `${escapeLine(byline)}\n` : "") + "\n";
 }
 
 function baseOf(doc: Document, finalUrl: string): string {
