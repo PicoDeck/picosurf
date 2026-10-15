@@ -21,6 +21,11 @@ describe("kindFromMime", () => {
     ["text/plain", "text"], ["text/markdown", "text"],
     ["text/xml", "sniff"], ["application/xml", "sniff"], ["", "sniff"], ["application/octet-stream", "sniff"],
   ])("%j → %s", (mime, kind) => expect(kindFromMime(mime)).toBe(kind));
+
+  it.each(["constructor", "tostring", "__proto__", "hasownproperty"])("treats prototype key %j as unsupported", (mime) => {
+    expect(kindFromMime(mime)).toBe("unsupported");
+    expect(imageTypeFromMime(mime)).toBeNull();
+  });
 });
 
 describe("sniffing", () => {

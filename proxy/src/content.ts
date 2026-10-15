@@ -23,14 +23,14 @@ export function charsetOf(contentType: string): string | null {
 export function kindFromMime(mime: string): Kind | "sniff" {
   if (mime === "text/html" || mime === "application/xhtml+xml") return "html";
   if (FEED_MIMES.has(mime)) return "feed";
-  if (mime in IMAGE_MIMES) return "image";
+  if (Object.hasOwn(IMAGE_MIMES, mime)) return "image";
   if (SNIFF_MIMES.has(mime)) return "sniff";
   if (mime.startsWith("text/")) return "text";
   return "unsupported";
 }
 
 export function imageTypeFromMime(mime: string): ImageType | null {
-  return IMAGE_MIMES[mime] ?? null;
+  return Object.hasOwn(IMAGE_MIMES, mime) ? IMAGE_MIMES[mime] : null;
 }
 
 export function sniffImageType(b: Uint8Array): ImageType | null {
