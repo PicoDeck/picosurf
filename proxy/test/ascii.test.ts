@@ -11,6 +11,7 @@ describe("foldAscii", () => {
     ["a b c　d", "a b c d"],
     ["20°C ½ €5 ™ © × → ≤", "20 degC 1/2 EUR5 (TM) (c) x -> <="],
     ["• item · dot", "* item * dot"],
+    ["↑ up ↓ down", "^ up v down"],
     ["x² Ａ", "x2 A"],
     ["ok \u{1f44d}\u{1f3fd} \u{1f1ec}\u{1f1e7} \u{1f468}‍\u{1f469}‍\u{1f467} 1️⃣", "ok    1"],
     ["日本語 текст", "??? ?????"],
