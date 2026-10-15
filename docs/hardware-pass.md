@@ -13,5 +13,15 @@ Run this on a real PicoCalc with PicoDeck 0.5.0 or later, against the deployed W
 9. Memory: after the largest page, the dev console's memory figure shows more than 1 MB of Lua heap free: ______.
 10. With WiFi off, opening a page shows "Connecting to WiFi..." and Esc goes Home. Feeds, bookmarks and history still list.
 11. Reboot: bookmarks, history, feeds and read marks are all still there.
+12. Shift+Tab (key 0xD2) selects the previous link.
+13. F1, type a URL, Enter: the page loads. The simulator can't test this.
+14. A toast clears from the panel within about 3 s, without a keypress.
+15. Held keys: Down scrolls repeatedly. F3 held toggles the bookmark once. Esc held while a page loads cancels once.
+16. With an https proxy URL, the first load succeeds over TLS.
+17. Open a large `[IMG]` image, then check the heap in the dev log: ______.
+18. WiFi from cold: power on, then open a page at once. It shows "Connecting to WiFi..." and then loads.
+19. Press Esc on 20 loads in a row, then check the heap in the dev log hasn't grown (HTTP callbacks are released): before ______, after ______.
+20. Leave it idle for more than 5 minutes, then follow a link. The stale keep-alive connection is retried and the page loads.
+21. With WiFi off, open a feed last fetched more than 30 minutes ago. It shows the saved items and the toast "Offline - showing saved items".
 
 Report any missed target as-is; don't round it.

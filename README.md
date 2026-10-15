@@ -15,17 +15,20 @@ Read the web and RSS/Atom feeds on a [PicoDeck](https://picodeck.net) PicoCalc. 
 | Key | On a page | On Home |
 |---|---|---|
 | Up / Down | scroll a row | move in the list |
-| Left / Right, Space | page up / down | switch tab |
+| Left / Right | page up / down | switch tab |
+| Space | page down | |
 | Tab / Shift+Tab | select the next / previous link on screen | |
 | Enter | open the selected link | open |
-| digits, then Enter | open link `[n]` | |
-| Backspace / Esc | back (Esc on the first page: Home) | Esc: quit, or stop a refresh |
+| digits, then Enter | open link `[n]` (Backspace deletes a digit, Esc clears the number) | |
+| Backspace / Esc | back (on the first page: Home) | Esc: quit, or stop a refresh |
 | F1 | go to a URL | go to a URL |
 | F2 | Home | |
 | F3 | bookmark / remove bookmark | |
 | F4 | reader / full page | |
-| F5 | subscribe to the page's feed | refresh all feeds (Feeds tab) |
+| F5 | subscribe to the page's feed (the footer shows `F5 feed` when the page names one) | refresh all feeds (Feeds tab) |
 | Del | | remove the selected entry |
+
+While a page loads, only Esc cancels it. On an error, Enter retries and Esc or Backspace goes back; on an image, Esc or Backspace goes back.
 
 The system menu has Reload, Edit URL, Mark all read and Settings.
 
@@ -33,7 +36,7 @@ The system menu has Reload, Edit URL, Mark all read and Settings.
 - `make test`: Lua unit tests under stock Lua and under `lua32`, which has the device's 32-bit numbers. Building `lua32` needs a PicoDeck checkout; set `PICODECK_ROOT`.
 - `make e2e`: runs the smoke tests locally in the PicoDeck simulator, against a fake proxy. They need a PicoDeck checkout, set by `PICODECK_ROOT` (default `~/Projects/PicoDeck/picodeck`). Run `make simulator` in that checkout first.
 - The proxy has its own tests: `cd proxy && npm test`.
-- Releases: bump `version` in `app.json`, then tag `v<version>`. CI builds the store ZIP.
+- Releases: bump `version` in `app.json`, then tag `v<version>`. CI builds the store ZIP, `picosurf-<version>.zip`.
 
 ## Later
 - Native Gemini and Gopher. Gemini needs a firmware call that returns the server certificate's fingerprint, for trust-on-first-use (TOFU).
