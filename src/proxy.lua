@@ -24,6 +24,16 @@ end
 
 local KINDS = { ["text/gemini"] = "gemini", ["text/plain"] = "text", ["image/jpeg"] = "image" }
 
+-- The media type alone: no parameters, lower case.
+local function mimeOf(headers)
+    return ((headers["content-type"] or ""):match("^%s*([^;%s]+)") or ""):lower()
+end
+
+-- Any server that is not a PicoSurf proxy. The status is an integer: "404", never "404.0".
+local function notProxy(status)
+    return "That URL is not a PicoSurf proxy (HTTP " .. tostring(math.tointeger(status) or status) .. ")"
+end
+
 -- ok, status, bodyOrError, headers: as delivered by an http.lua callback.
 function M.interpret(ok, status, body, headers)
     if not ok then
@@ -33,8 +43,8 @@ function M.interpret(ok, status, body, headers)
         return { kind = "error", message = msg }
     end
     headers = headers or {}
+    local mime = mimeOf(headers)
     if status == 200 then
-        local mime = ((headers["content-type"] or ""):match("^%s*([^;%s]+)") or ""):lower()
         local kind = KINDS[mime]
         if not kind then
             return { kind = "error", status = status, message = "Unexpected response: " .. (mime ~= "" and mime or "no type") }
@@ -44,17 +54,22 @@ function M.interpret(ok, status, body, headers)
             mode = headers["x-mode"], feedUrl = headers["x-feed-url"], truncated = headers["x-truncated"] == "1",
         }
     end
-    if status == 401 then
-        return { kind = "error", status = 401, message = "Proxy rejected the token - check Settings" }
+    -- The proxy's errors are a status plus a one-line text/plain reason. Anything else
+    -- is not the proxy speaking (a site's HTML error page, say), so its markup is never shown.
+    if mime == "text/plain" then
+        if status == 401 then
+            return { kind = "error", status = 401, message = "Proxy rejected the token - check Settings" }
+        end
+        local line = firstLine(body)
+        if line ~= "" then return { kind = "error", status = status, message = line } end
     end
-    local line = firstLine(body)
-    return { kind = "error", status = status, message = line ~= "" and line or ("Proxy error " .. tostring(status)) }
+    return { kind = "error", status = status, message = notProxy(status) }
 end
 
 function M.interpretPing(ok, status, body, headers)
     if ok and status == 200 then
         if (body or ""):find("^picosurf%-proxy") then return { ok = true } end
-        return { ok = false, message = "That URL is not a PicoSurf proxy" }
+        return { ok = false, message = notProxy(status) }
     end
     return { ok = false, message = M.interpret(ok, status, body, headers).message }
 end

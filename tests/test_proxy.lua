@@ -25,10 +25,10 @@ return {
         T.eq(r.kind, "error"); T.eq(r.message, "Unexpected response: application/pdf")
     end,
     turns_statuses_into_messages = function()
-        T.eq(proxy.interpret(true, 401, "Missing or wrong token\n", {}).message, "Proxy rejected the token - check Settings")
-        local r = proxy.interpret(true, 502, "Site returned 404 Not Found\n", { ["x-upstream-status"] = "404" })
+        T.eq(proxy.interpret(true, 401, "Missing or wrong token\n", { ["content-type"] = "text/plain; charset=us-ascii" }).message, "Proxy rejected the token - check Settings")
+        local r = proxy.interpret(true, 502, "Site returned 404 Not Found\n", { ["content-type"] = "text/plain; charset=us-ascii", ["x-upstream-status"] = "404" })
         T.eq(r.kind, "error"); T.eq(r.status, 502); T.eq(r.message, "Site returned 404 Not Found")
-        T.eq(proxy.interpret(true, 500, "", {}).message, "Proxy error 500")
+        T.eq(proxy.interpret(true, 500, "", {}).message, "That URL is not a PicoSurf proxy (HTTP 500)")
     end,
     turns_transport_failures_into_messages = function()
         T.eq(proxy.interpret(false, nil, "clock not set: TLS needs the time from SNTP", nil).kind, "clock")
@@ -38,8 +38,24 @@ return {
     end,
     interprets_ping = function()
         T.eq(proxy.interpretPing(true, 200, "picosurf-proxy 1\n", {}).ok, true)
-        T.eq(proxy.interpretPing(true, 200, "<html>", {}).message, "That URL is not a PicoSurf proxy")
-        T.eq(proxy.interpretPing(true, 401, "Missing or wrong token\n", {}).message, "Proxy rejected the token - check Settings")
+        T.eq(proxy.interpretPing(true, 200, "<html>", {}).message, "That URL is not a PicoSurf proxy (HTTP 200)")
+        T.eq(proxy.interpretPing(true, 401, "Missing or wrong token\n", { ["content-type"] = "text/plain; charset=us-ascii" }).message, "Proxy rejected the token - check Settings")
         T.eq(proxy.interpretPing(false, nil, "connect timeout (15000ms)", nil).message, "Proxy did not respond")
+    end,
+    not_a_proxy_for_html_and_bare_errors = function()
+        local html = { ["content-type"] = "text/html; charset=utf-8" }
+        T.eq(proxy.interpret(true, 404, "<!DOCTYPE html>\n<html>", html).message, "That URL is not a PicoSurf proxy (HTTP 404)")
+        T.eq(proxy.interpretPing(true, 404, "<!DOCTYPE html>\n<html>", html).message, "That URL is not a PicoSurf proxy (HTTP 404)")
+        T.eq(proxy.interpret(true, 502, "<!DOCTYPE html>\n<html>", html).message, "That URL is not a PicoSurf proxy (HTTP 502)")
+        local r = proxy.interpret(true, 404, "<!DOCTYPE html>", {})
+        T.eq(r.kind, "error"); T.eq(r.status, 404); T.eq(r.message, "That URL is not a PicoSurf proxy (HTTP 404)")
+        T.eq(proxy.interpret(true, 401, "Missing or wrong token\n", html).message, "That URL is not a PicoSurf proxy (HTTP 401)")
+        T.eq(proxy.interpret(true, 502, "\n", { ["content-type"] = "text/plain" }).message, "That URL is not a PicoSurf proxy (HTTP 502)")
+    end,
+    plain_text_errors_keep_their_line = function()
+        local plain = { ["content-type"] = "TEXT/PLAIN; charset=us-ascii" }
+        T.eq(proxy.interpret(true, 502, "Site returned 404 Not Found\n", plain).message, "Site returned 404 Not Found")
+        T.eq(proxy.interpret(true, 401, "Missing or wrong token\n", plain).message, "Proxy rejected the token - check Settings")
+        T.eq(proxy.interpretPing(true, 401, "Missing or wrong token\n", plain).message, "Proxy rejected the token - check Settings")
     end,
 }
