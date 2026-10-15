@@ -93,6 +93,25 @@ export function discoverFeed(html: string, finalUrl: string): string | null {
 /** The pre-pass over the document before Readability parses it. Exported for tests. */
 export function prepareForReader(doc: Document): void {
   hoistHeadings(doc);
+  defuseBylines(doc);
+}
+
+/** Readability's byline pattern, matched against an element's class and id. */
+const BYLINE_LIKE = /byline|author|dateline|writtenby|p-author/i;
+
+/**
+ * Readability takes a short element whose class or id matches BYLINE_LIKE as
+ * the byline and deletes it from the article. MDN's
+ * <dt id="203_non-authoritative_information"> matched, so the term left the
+ * body and became the byline. Headings, terms and table headers are never
+ * bylines, so such ids and classes are removed from them.
+ */
+function defuseBylines(doc: Document): void {
+  for (const el of Array.from(doc.querySelectorAll("h1, h2, h3, h4, h5, h6, dt, th"))) {
+    for (const attr of ["id", "class"]) {
+      if (BYLINE_LIKE.test(el.getAttribute(attr) ?? "")) el.removeAttribute(attr);
+    }
+  }
 }
 
 /**

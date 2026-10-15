@@ -28,6 +28,17 @@ describe("renderPage", () => {
     expect(page.gemtext).toBe("# Links\n\n=> https://example.com/a A\n\nShort.\n");
   });
 
+  it("keeps a term whose id looks like a byline in the body, not the byline", () => {
+    const lorem = articleHtml().match(/<p>(.*?)<\/p>/)![1];
+    const html = `<html><head><title>Glossary</title></head><body><article><h1>Glossary</h1><p>${lorem}</p>
+<dl><dt id="author_header">Author header</dt><dd>${lorem}</dd></dl><p>${lorem}</p></article></body></html>`;
+    const page = renderPage(html, URL_, "reader");
+    expect(page.mode).toBe("reader");
+    const lines = page.gemtext.split("\n");
+    expect(lines[1]).toBe(""); // no byline line under the title
+    expect(lines.slice(2)).toContain("Author header");
+  });
+
   describe("article coverage of the page (Ruling 11)", () => {
     const lorem = articleHtml().match(/<p>(.*?)<\/p>/)![1];
     const headlines = (n: number) =>

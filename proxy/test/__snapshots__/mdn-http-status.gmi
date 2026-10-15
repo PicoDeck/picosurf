@@ -1,5 +1,5 @@
 # HTTP response status codes - HTTP | MDN
-MDN Web Docs - 203 Non-Authoritative Information
+MDN Web Docs
 
 ## Informational responses
 
@@ -51,6 +51,8 @@ The request succeeded, and a new resource was created as a result. This is typic
 => https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/202 202 Accepted
 
 The request has been received but not yet acted upon. It is noncommittal, since there is no way in HTTP to later send an asynchronous response indicating the outcome of the request. It is intended for cases where another process or server handles the request, or for batch processing.
+
+=> https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/203 203 Non-Authoritative Information
 
 This response code means the returned metadata is not exactly the same as is available from the origin server, but is collected from a local or a third-party copy. This is mostly used for mirrors or backups of another resource. Except for that specific case, the 200 OK [13] response is preferred to this status.
 => https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/200 [13] 200 OK
