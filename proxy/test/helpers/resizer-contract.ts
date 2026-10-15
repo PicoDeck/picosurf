@@ -26,7 +26,7 @@ export function resizerContract(name: string, make: () => Promise<Resizer>): voi
       resizer = await make();
     });
 
-    it.each(CASES)("%s → baseline JPEG %dx%d", async (file, type, width, height) => {
+    it.each(CASES)("%s (%s) → baseline JPEG %dx%d", async (file, type, width, height) => {
       const out = await resizer.resize(imageFixture(file), type);
       const info = jpegInfo(out);
       expect(info?.sof).toBe(0xc0);
