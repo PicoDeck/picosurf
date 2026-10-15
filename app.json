@@ -1,0 +1,10 @@
+{
+  "id": "net.picodeck.picosurf",
+  "name": "PicoSurf",
+  "description": "Read the web and RSS feeds through your own PicoSurf proxy",
+  "version": "0.1.0",
+  "author": "PicoDeck",
+  "category": "network",
+  "min_firmware": "0.5.0",
+  "requirements": ["http"]
+}
