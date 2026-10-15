@@ -25,6 +25,8 @@ The two platforms resize images with different code, so their limits differ:
 - **Workers** refuses images over `WASM_MAX_PIXELS` (2,000,000 pixels) with 413. The WASM codecs need about 30 MiB per megapixel, and a Worker has 128 MB.
 - **Docker/Node** accepts images up to 16,000,000 pixels.
 
+Workers also can't decode CMYK or YCCK JPEGs: the WASM build of mozjpeg can't convert them to RGB, so they get 415. Docker/Node decodes them.
+
 ## Deploy on Cloudflare Workers
 
 1. `cd proxy && npm ci`
@@ -38,8 +40,10 @@ Use the **Workers Paid** plan. The free plan allows 10 ms of CPU per request, wh
 
 ```bash
 docker build -t picosurf-proxy proxy
-docker run -d --name picosurf --restart unless-stopped -e PROXY_TOKEN=<token> -p 8080:8080 picosurf-proxy
+docker run -d --name picosurf --restart unless-stopped -e PROXY_TOKEN=<token> -p 127.0.0.1:8080:8080 picosurf-proxy
 ```
+
+The port is published on `127.0.0.1` only. Caddy (below) runs on the same host and reaches it there, and the plain-HTTP port, which would carry the token unencrypted, should not be exposed to the network.
 
 Put it behind HTTPS with a certificate from a public CA. For example, with Caddy:
 
