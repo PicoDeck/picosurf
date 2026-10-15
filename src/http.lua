@@ -13,7 +13,7 @@ Pool.__index = Pool
 
 -- net: picocalc.network; base: {host, port, tls} from url.parseBase.
 function M.pool(net, base)
-    return setmetatable({ net = net, base = base, idle = {}, active = 0 }, Pool)
+    return setmetatable({ net = net, base = base, idle = {}, active = 0, reqs = {} }, Pool)
 end
 
 local function connect(self)
@@ -26,39 +26,56 @@ local function connect(self)
     return conn
 end
 
+-- Ends a request: marks it finished first (so late firmware callbacks do
+-- nothing), frees its slot, and returns or closes its connection.
+function Pool:finish(state, keep)
+    if state.finished then return end
+    state.finished = true
+    self.active = self.active - 1
+    self.reqs[state] = nil
+    local conn = state.conn
+    if conn then
+        if keep then self.idle[#self.idle + 1] = conn else conn:close() end
+    end
+end
+
+function Pool:dropIdle()
+    for _, c in ipairs(self.idle) do c:close() end
+    self.idle = {}
+end
+
 -- GET path. done(ok, status, bodyOrError, headers) runs exactly once unless
 -- the request is cancelled. Returns a handle {cancel(), received()}, or nil and
 -- "busy" when MAX_ACTIVE requests are running.
 function Pool:get(path, headers, done)
     if self.active >= M.MAX_ACTIVE then return nil, "busy" end
     self.active = self.active + 1
-    local handle = {}
-    local state = { finished = false, total = 0 }
-    self:send(path, headers, done, handle, state, true)
+    local state = { finished = false, total = 0, done = done }
+    self.reqs[state] = true
+    local handle = {
+        cancel = function() self:finish(state, false) end,
+        received = function() return state.total end,
+    }
+    self:send(path, headers, state, true, false)
     return handle
 end
 
-function Pool:send(path, headers, done, handle, state, mayRetry)
+function Pool:send(path, headers, state, mayRetry, fresh)
     local pool = self
+    if fresh then pool:dropIdle() end
     local conn = table.remove(self.idle)
     local reused = conn ~= nil
     if not conn then
         local err
         conn, err = connect(self)
         if not conn then
-            state.finished = true
-            pool.active = pool.active - 1
-            done(false, nil, err or "No connection available")
+            pool:finish(state, false)
+            state.done(false, nil, err or "No connection available")
             return
         end
     end
+    state.conn = conn
     local parts, n = {}, 0
-
-    local function finish(keep)
-        state.finished = true
-        pool.active = pool.active - 1
-        if keep then pool.idle[#pool.idle + 1] = conn else conn:close() end
-    end
 
     local function drain()
         while not state.finished and conn:getBytesAvailable() > 0 do
@@ -66,8 +83,8 @@ function Pool:send(path, headers, done, handle, state, mayRetry)
             if not d then break end
             state.total = state.total + #d
             if state.total > M.MAX_BODY then
-                finish(false)
-                done(false, nil, "Page too large (over 512 KB)")
+                pool:finish(state, false)
+                state.done(false, nil, "Page too large (over 512 KB)")
                 return
             end
             n = n + 1
@@ -75,45 +92,51 @@ function Pool:send(path, headers, done, handle, state, mayRetry)
         end
     end
 
+    -- A reused connection that failed before any data: retry once on a fresh
+    -- connection, discarding every idle one (they are likely all dead).
+    local function retry()
+        conn:close()
+        return pool:send(path, headers, state, false, true)
+    end
+
     conn:setRequestCallback(drain)
     conn:setRequestCompleteCallback(function()
         if state.finished then return end
         drain()
         if state.finished then return end
-        local status, hdrs = conn:getResponseStatus(), conn:getResponseHeaders()
-        finish(true)
-        done(true, status, table.concat(parts), hdrs or {})
+        local status, hdrs = conn:getResponseStatus(), conn:getResponseHeaders() or {}
+        local c = hdrs["connection"]
+        pool:finish(state, not (c and c:lower():find("close", 1, true)))
+        state.done(true, status, table.concat(parts), hdrs)
     end)
     conn:setConnectionClosedCallback(function()
         if state.finished then return end
-        -- The firmware has released the connection. A kept-alive connection the
-        -- server closed while idle fails before any data: try once more, fresh.
-        if reused and mayRetry and state.total == 0 then
-            return pool:send(path, headers, done, handle, state, false)
-        end
-        state.finished = true
-        pool.active = pool.active - 1
-        done(false, nil, conn:getError() or "Connection closed")
+        if reused and mayRetry and state.total == 0 then return retry() end
+        local err = conn:getError() or "Connection closed"
+        state.conn = nil -- the firmware already released it
+        pool:finish(state, false)
+        state.done(false, nil, err)
     end)
-
-    handle.cancel = function()
-        if not state.finished then finish(false) end
-    end
-    handle.received = function() return state.total end
 
     local ok, sent, err = pcall(conn.get, conn, path, headers)
     if ok and sent then return end
     if not ok and reused and mayRetry then
         -- get() raises on a connection the firmware already released.
-        return pool:send(path, headers, done, handle, state, false)
+        return retry()
     end
-    finish(false)
-    done(false, nil, (ok and err) or "Request failed")
+    pool:finish(state, false)
+    state.done(false, nil, (ok and err) or "Request failed")
 end
 
 function Pool:closeAll()
-    for _, c in ipairs(self.idle) do c:close() end
-    self.idle = {}
+    self:dropIdle()
+    local list = {}
+    for st in pairs(self.reqs) do list[#list + 1] = st end
+    for _, st in ipairs(list) do
+        self:finish(st, false)
+        st.done(false, nil, "Connection closed")
+    end
+    self.active = 0
 end
 
 return M
