@@ -7,4 +7,4 @@ COPY tsconfig.json ./
 COPY src ./src
 USER node
 EXPOSE 8080
-CMD ["npx", "tsx", "src/serve.ts"]
+CMD ["node", "--import", "tsx", "src/serve.ts"]
