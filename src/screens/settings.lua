@@ -1,0 +1,76 @@
+-- Settings: proxy URL, token, font and a connection test (spec 6.8).
+local S = {}
+local ITEMS = { "proxy", "token", "font", "test" }
+
+function S.enter(app, args)
+    app.set = { sel = 1, firstRun = args.firstRun, from = args.from }
+end
+
+local function label(app, item)
+    local c = app.cfg
+    if item == "proxy" then return "Proxy URL: " .. (c.proxyUrl ~= "" and c.proxyUrl or "(not set)") end
+    if item == "token" then return "Token: " .. (c.token ~= "" and ("****" .. c.token:sub(-4)) or "(not set)") end
+    if item == "font" then return "Font: " .. (c.font == "8x12" and "8x12 (large)" or "Scientifica") end
+    return "Test connection"
+end
+
+function S.draw(app)
+    local th, d, set = app.theme, app.disp, app.set
+    app.ui.drawHeader("PicoSurf Settings")
+    for i, item in ipairs(ITEMS) do
+        app.ui.drawListItem(0, 30 + (i - 1) * 16, 320, label(app, item), i == set.sel, true)
+    end
+    local notes = {}
+    if set.firstRun then
+        notes = {
+            "PicoSurf reads the web through a",
+            "PicoSurf proxy you run yourself.",
+            "Setup: github.com/PicoDeck/picosurf",
+            "(proxy/README.md), then enter its",
+            "URL and token above.",
+        }
+    end
+    if app.cfg.proxyUrl:lower():match("^http://") then
+        notes[#notes + 1] = "Warning: http:// sends the token unencrypted."
+    end
+    if app.baseErr then notes[#notes + 1] = app.baseErr end
+    d.setFont(th.font)
+    for i, n in ipairs(notes) do
+        d.drawText(th.margin, 110 + (i - 1) * th.rowH, n, th.dim, false)
+    end
+    app.ui.drawFooter("Enter edit  Esc done", "")
+end
+
+local function trim(s)
+    return s:match("^%s*(.-)%s*$")
+end
+
+function S.key(app, action)
+    local set = app.set
+    if action == "up" then
+        set.sel = (set.sel - 2) % #ITEMS + 1
+    elseif action == "down" then
+        set.sel = set.sel % #ITEMS + 1
+    elseif action == "enter" then
+        local item = ITEMS[set.sel]
+        if item == "proxy" then
+            local v = app.ui.textInput("Proxy URL:", app.cfg.proxyUrl)
+            app.input.clearState()
+            if v then app:saveConfig("proxy_url", trim(v)) end
+        elseif item == "token" then
+            local v = app.ui.textInput("Token:", "")
+            app.input.clearState()
+            if v and trim(v) ~= "" then app:saveConfig("token", trim(v)) end
+        elseif item == "font" then
+            app:saveConfig("font", app.cfg.font == "8x12" and "scientifica" or "8x12")
+            app:relayout()
+        else
+            app:ping()
+        end
+    elseif action == "esc" or action == "backspace" then
+        return app:show((set.from == "page" and app.page) and "page" or "home")
+    end
+    app.dirty = true
+end
+
+return S
