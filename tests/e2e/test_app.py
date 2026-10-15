@@ -46,8 +46,8 @@ def act(sim, *keys):
 
 def go(sim, text):
     """F1, wait until the text box is open, type, Enter. Returns the mark
-    taken before F1. The simulator cannot press Enter in ui.textInput (see
-    test_go_prompt_accepts_url), so only that test uses this."""
+    taken before F1. ui.textInput accepts on Enter's '\\n' char, which an
+    Enter button tap does not carry (as on the device), so this types "\\n"."""
     m = act(sim, "f1")
     wait(sim, r"picosurf: prompt go", m)
     # The app logs before ui.textInput runs, and the modal discards keys queued
@@ -56,7 +56,7 @@ def go(sim, text):
     time.sleep(0.5)
     for c in text:
         sim.keypress(c)
-    sim.keypress("enter")
+    sim.keypress("\n")
     return m
 
 
@@ -140,12 +140,16 @@ def test_proxy_errors_show(picosurf):
     no_lua_errors(sim)
 
 
-@pytest.mark.skip(reason="simulator gap: inject_button enter sends BTN_ENTER but no '\\n' char, and inject_char "
-                         "cannot carry a newline (its JSON parser does not unescape), so Enter never accepts "
-                         "ui.textInput, which accepts only on the '\\n' char")
 def test_go_prompt_accepts_url(picosurf):
     sim, proxy, _ = picosurf()
     proxy.add("https://a.test/", A, title="A")
     wait(sim, r"picosurf: screen home", start_app(sim))
-    wait(sim, r"picosurf: loaded https://a\.test/", go(sim, "a.test/"))
+    m = go(sim, "a.test/")
+    try:
+        wait(sim, r"picosurf: loaded https://a\.test/", m)
+    except TimeoutError:
+        pytest.fail("the Go prompt never accepted. A simulator older than PicoDeck's "
+                    "fix/sim-enter-char cannot type '\\n' (its control channel does "
+                    "not unescape JSON strings); rebuild it and retry")
+    assert any(q.get("url") == "https://a.test/" for _, q in proxy.requests), proxy.requests
     no_lua_errors(sim)

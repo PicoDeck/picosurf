@@ -14,7 +14,7 @@ Run this on a real PicoCalc with PicoDeck 0.5.0 or later, against the deployed W
 10. With WiFi off, opening a page shows "Connecting to WiFi..." and Esc goes Home. Feeds, bookmarks and history still list.
 11. Reboot: bookmarks, history, feeds and read marks are all still there.
 12. Shift+Tab (key 0xD2) selects the previous link.
-13. F1, type a URL, Enter: the page loads. The simulator can't test this.
+13. F1, type a URL, Enter on the real keyboard: the page loads. The simulator test types Enter's `\n` char; only the device checks the physical key.
 14. A toast clears from the panel within about 3 s, without a keypress.
 15. Held keys: Down scrolls repeatedly. F3 held toggles the bookmark once. Esc held while a page loads cancels once.
 16. With an https proxy URL, the first load succeeds over TLS.

@@ -34,12 +34,12 @@ The system menu has Reload, Edit URL, Mark all read and Settings.
 
 ## Development
 - `make test`: Lua unit tests under stock Lua and under `lua32`, which has the device's 32-bit numbers. Building `lua32` needs a PicoDeck checkout; set `PICODECK_ROOT`.
-- `make e2e`: runs the smoke tests locally in the PicoDeck simulator, against a fake proxy. They need a PicoDeck checkout, set by `PICODECK_ROOT` (default `~/Projects/PicoDeck/picodeck`). Run `make simulator` in that checkout first.
+- `make e2e`: runs the smoke tests locally in the PicoDeck simulator, against a fake proxy. They need a PicoDeck checkout, set by `PICODECK_ROOT` (default `~/Projects/PicoDeck/picodeck`). Run `make simulator` in that checkout first. The F1 "Go to" test types Enter's `\n` through the simulator's control channel, which needs a simulator built with PicoDeck's `fix/sim-enter-char` (JSON strings unescaped); an older one fails that test with a message saying so.
 - The proxy has its own tests: `cd proxy && npm test`.
 - Releases: bump `version` in `app.json`, then tag `v<version>`. CI builds the store ZIP, `picosurf-<version>.zip`.
 
 ## Later
 - Native Gemini and Gopher. Gemini needs a firmware call that returns the server certificate's fingerprint, for trust-on-first-use (TOFU).
 - A longer `ui.textInput` limit, so "Edit URL" works on article URLs over 127 characters.
-- Simulator fixes for end-to-end tests: an injected Enter should also deliver a newline character, so `ui.textInput` accepts it (the F1 "Go to" test is skipped until then); and Shift+Tab (key 0xD2) and HTTP back-pressure should behave as on the device.
+- Simulator fixes for end-to-end tests: Shift+Tab (key 0xD2) and HTTP back-pressure should behave as on the device.
 - Web search, saving pages offline, OPML import, inline images, non-Latin fonts.
