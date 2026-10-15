@@ -1,0 +1,283 @@
+# Gemini (protocol)
+Wikimedia Foundation, Inc. - Contributors to Wikimedia projects - 2020-12-27
+
+From Wikipedia, the free encyclopedia
+
+Gemini
+
+Developed by | Solderpunk et al.
+Introduced | June 2019
+Website | geminiprotocol.net [1]
+=> https://geminiprotocol.net/ [1] geminiprotocol.net
+
+Gemtext
+Filename extension [2] | .gmi, .gmni, .gemini
+=> https://en.wikipedia.org/wiki/Filename_extension [2] Filename extension
+Internet media type [3] | `text/gemini` (unofficial)
+=> https://en.wikipedia.org/wiki/Media_type [3] Internet media type
+Type code [4] | TEXT
+=> https://en.wikipedia.org/wiki/Resource_fork [4] Type code
+Developed by | Solderpunk et al.
+Latest release [5] | 0.24.1
+28 August 2024; 2 years ago
+=> https://en.wikipedia.org/wiki/Software_release_life_cycle [5] Latest release
+Type of format | Markup language [6]
+=> https://en.wikipedia.org/wiki/Markup_language [6] Markup language
+Open format [7]? | Yes
+=> https://en.wikipedia.org/wiki/Open_file_format [7] Open format
+Website | geminiprotocol.net/docs/gemtext-specification.gmi [8]
+=> https://geminiprotocol.net/docs/gemtext-specification.gmi [8] geminiprotocol.net/docs/gemtext-specification.gmi
+
+Gemini, or Project Gemini, is an application-layer [9] Internet communication protocol for accessing remote documents, similar to HTTP [10] and Gopher [11]. It comes with a special document format, commonly referred to as "gemtext", which allows linking to other documents. Started by a pseudonymous person known as Solderpunk, the protocol is being finalized collaboratively and as of October 2022, has not been submitted to the IETF [12] organization for standardization [13].
+=> https://en.wikipedia.org/wiki/Application-layer [9] application-layer
+=> https://en.wikipedia.org/wiki/HTTP [10] HTTP
+=> https://en.wikipedia.org/wiki/Gopher_(protocol) [11] Gopher
+=> https://en.wikipedia.org/wiki/IETF [12] IETF
+=> https://en.wikipedia.org/wiki/Standardization [13] standardization
+
+## History
+
+The Gemini project was started in June 2019 by Solderpunk. Additional work has been done by an informal community of users. According to Solderpunk's FAQ, Gemini is not intended to replace Gopher [11] or HTTP [10], but to co-exist with them.[1] Much of the development happened on the Gemini mailing list until the list disappeared at the end of 2021 due to a hardware issue.[2] The creation of the Usenet [14] newsgroup comp.infosystems.gemini in October 2021 was the first new newsgroup in the Big Eight [15] hierarchy in eight years.[3]
+=> https://en.wikipedia.org/wiki/Gopher_(protocol) [11] Gopher
+=> https://en.wikipedia.org/wiki/HTTP [10] HTTP
+=> https://en.wikipedia.org/wiki/Usenet [14] Usenet
+=> https://en.wikipedia.org/wiki/Big_8_(Usenet) [15] Big Eight
+
+## Design
+
+The Gemini specification defines both the Gemini protocol and a native file format for that protocol, analogous to HTML [16] for HTTP, known as "gemtext". The design is inspired by Gopher [11], but with modernisation such as mandatory use of Transport Layer Security [17] (TLS) for connections and a hypertext [18] format as native content type.[4]
+=> https://en.wikipedia.org/wiki/HTML [16] HTML
+=> https://en.wikipedia.org/wiki/Gopher_(protocol) [11] Gopher
+=> https://en.wikipedia.org/wiki/Transport_Layer_Security [17] Transport Layer Security
+=> https://en.wikipedia.org/wiki/Hypertext [18] hypertext
+
+The design is deliberately not easily extensible, in order to meet a project goal of simplicity.[5]
+
+### Protocol
+
+Gemini is designed within the framework of the Internet protocol suite [19]. Like HTTP/S, Gemini functions as a request–response [20] protocol in the client–server computing model. A Gemini server should listen on TCP port 1965. A Gemini browser, for example, may be the client and an application running on a computer hosting [21] a Gemini site may be the server. The client sends a Gemini request message to the server, and the server sends back a response message. Gemini uses a separate connection [22] to the same server for every resource request.[6]
+=> https://en.wikipedia.org/wiki/Internet_protocol_suite [19] Internet protocol suite
+=> https://en.wikipedia.org/wiki/Request%E2%80%93response [20] request–response
+=> https://en.wikipedia.org/wiki/Host_(network) [21] hosting
+=> https://en.wikipedia.org/wiki/Connection-oriented_communication [22] connection
+
+Gemini mandates the use of TLS with privacy-related features and trust on first use [23] (TOFU) verification being strongly suggested.[7]
+=> https://en.wikipedia.org/wiki/Trust_on_first_use [23] trust on first use
+
+Browsing Gemini through Amfora - TUI client
+
+Gemini resources are identified and located on the network by Uniform Resource Locators [24] (URLs), using the URI scheme [25] gemini://. A Gemini request consists only of such a URL, terminated by `CRLF`; the header of a Gemini response consists of a two-digit status code, a space, and a "meta" field, also terminated by `CRLF`. If the server is successful in finding the requested file, the "meta" field is the MIME type [26] of the returned file and after the header follows the file data.
+=> https://en.wikipedia.org/wiki/Uniform_Resource_Locator [24] Uniform Resource Locators
+=> https://en.wikipedia.org/wiki/URI_scheme [25] URI scheme
+=> https://en.wikipedia.org/wiki/MIME_type [26] MIME type
+
+Example session
+
+Client | gemini://example.com/
+Server | 20 text/gemini # Example Title Welcome to my Gemini capsule. * Example list item => gemini://link.to/another/resource Link text
+
+### Gemtext format
+
+Gemtext format is line-oriented and the first three characters of a line determine its type. The syntax includes markup for headlines, flat list items, pre-formatted text, quotes and link lines. As with HTTP hypertext, URIs are encoded as hyperlinks [27] to form interlinked hypertext documents in the Gemini "web", which users refer to as Geminispace.[1]
+=> https://en.wikipedia.org/wiki/Hyperlink [27] hyperlinks
+
+## Geminispace
+
+"Geminispace" denotes the whole of the public resources that are published on the Internet by the Gemini community via the Gemini protocol. Thus, Gemini spans an alternative communication web, with hypertext documents, including hyperlinks to other resources easily accessible to the user.[1]
+
+As of July 2024, Geminispace consists of around 3900 online known Gemini appearances ("capsules") identified by crawling over 600,000 URIs.[8]
+
+## Software
+
+=> https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a8/Screenshot_of_Amfora.png/500px-Screenshot_of_Amfora.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail [IMG] image
+=> https://en.wikipedia.org/wiki/File:Screenshot_of_Amfora.png en.wikipedia.org/wiki/File:Screenshot_of_Amfora.png
+
+Amfora - Gemini client
+
+=> https://thumb.wikimedia.org/wikipedia/en/thumb/9/94/AmiGemini.png/500px-AmiGemini.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail [IMG] image
+=> https://en.wikipedia.org/wiki/File:AmiGemini.png en.wikipedia.org/wiki/File:AmiGemini.png
+
+AmiGemini - Gemini client
+
+Gemini clients
+
+Name | Platform | Client Type | License | Written in
+Alhena [28] | Linux, macOS, Windows, BSD | GUI | GPL 3.0 | Java [29]
+=> https://github.com/mochaman/alhena [28] Alhena
+=> https://en.wikipedia.org/wiki/Java_(programming_language) [29] Java
+Amfora [30] | BSD, Linux, macOS, Windows | Terminal (TUI) | GPL 3.0 | Go [31]
+=> https://github.com/makeworld-the-better-one/amfora [30] Amfora
+=> https://en.wikipedia.org/wiki/Go_(programming_language) [31] Go
+AmiGemini [32] | AmigaOS | GUI (Intuition) | MIT | C [33], Intuition [34]
+=> http://aminet.net/package/comm/net/AmiGemini [32] AmiGemini
+=> https://en.wikipedia.org/wiki/C_(programming_language) [33] C
+=> https://en.wikipedia.org/wiki/Intuition_(Amiga) [34] Intuition
+ereandel [35] | Bourne shell | Terminal (TUI) | MIT | Shell script [36]
+=> https://github.com/blmayer/ereandel [35] ereandel
+=> https://en.wikipedia.org/wiki/Shell_script [36] Shell script
+asuka [37] | | Terminal (TUI) | MIT | Rust [38], ncurses [39]
+=> https://git.sr.ht/~julienxx/asuka [37] asuka
+=> https://en.wikipedia.org/wiki/Rust_(programming_language) [38] Rust
+=> https://en.wikipedia.org/wiki/Ncurses [39] ncurses
+AV-98 [40] | | Terminal (CLI) | 2 Clause BSD | Python [41]
+=> https://git.sr.ht/~solderpunk/AV-98/ [40] AV-98
+=> https://en.wikipedia.org/wiki/Python_(programming_language) [41] Python
+Bollux [42] | | Terminal | MIT | Bash [43]
+=> https://tildegit.org/acdw/bollux [42] Bollux
+=> https://en.wikipedia.org/wiki/Bash_(Unix_shell) [43] Bash
+Bombadillo [44] | BSD, Linux, macOS | Terminal (TUI) | GPL 3.0 | Go [31]
+=> https://bombadillo.colorfield.space/ [44] Bombadillo
+=> https://en.wikipedia.org/wiki/Go_(programming_language) [31] Go
+Buran [45] | Android | Mobile App | GPL 3.0 | Kotlin [46]
+=> https://github.com/Corewala/Buran [45] Buran
+=> https://en.wikipedia.org/wiki/Kotlin_(programming_language) [46] Kotlin
+Castor [47] | | GUI (GTK) | MIT | Rust [38], GTK [48]
+=> https://sr.ht/~julienxx/Castor [47] Castor
+=> https://en.wikipedia.org/wiki/Rust_(programming_language) [38] Rust
+=> https://en.wikipedia.org/wiki/GTK [48] GTK
+Castor9 [49] | Plan 9 | GUI | | C [33]
+=> https://sr.ht/~julienxx/Castor9 [49] Castor9
+=> https://en.wikipedia.org/wiki/C_(programming_language) [33] C
+Deedum [50] | Android and iOS | Mobile App | GPL 3.0 | Flutter [51], Dart [52]
+=> https://github.com/snoe/deedum [50] Deedum
+=> https://en.wikipedia.org/wiki/Flutter_(software) [51] Flutter
+=> https://en.wikipedia.org/wiki/Dart_(programming_language) [52] Dart
+Diohsc [53] | | Terminal (CLI) | GPL 3.0 | Haskell [54]
+=> https://mbays.sdf.org/diohsc/ [53] Diohsc
+=> https://en.wikipedia.org/wiki/Haskell_(programming_language) [54] Haskell
+dillo-gemini [55] | BSD, Linux, macOS | Plugin (Dillo [56]) | FSFAP [57] | Shell [58]
+=> https://git.scuttlebot.io/%25V0D7DtSnZyyAp1NbgOJF2ZAFMeUy9eXwyClCEKYUYAI%3D.sha256 [55] dillo-gemini
+=> https://en.wikipedia.org/wiki/Dillo [56] Dillo
+=> https://en.wikipedia.org/wiki/GNU_All-permissive_License [57] FSFAP
+=> https://en.wikipedia.org/wiki/POSIX_shell [58] Shell
+Elaho (gemini-ios) [59] | iOS | Mobile App | MPL 2.0 | Swift [60]
+=> https://github.com/pitr/gemini-ios [59] Elaho (gemini-ios)
+=> https://en.wikipedia.org/wiki/Swift_(programming_language) [60] Swift
+Elpher [61] | | GUI (Emacs) | GPL 3.0 | Emacs Lisp [62]
+=> https://github.com/emacsmirror/elpher [61] Elpher
+=> https://en.wikipedia.org/wiki/Emacs_Lisp [62] Emacs Lisp
+Eva [63] | | GUI (GTK) | MIT | Rust [38], GTK [48]
+=> https://codeberg.org/jeang3nie/eva [63] Eva
+=> https://en.wikipedia.org/wiki/Rust_(programming_language) [38] Rust
+=> https://en.wikipedia.org/wiki/GTK [48] GTK
+Fafi [64] | | GUI | MIT | Racket [65]
+=> https://git.sr.ht/~soapdog/fafi-browser [64] Fafi
+=> https://en.wikipedia.org/wiki/Racket_(programming_language) [65] Racket
+gemget [66] | | Terminal (CLI), noninteractive | MIT | Go [31]
+=> https://github.com/makew0rld/gemget [66] gemget
+=> https://en.wikipedia.org/wiki/Go_(programming_language) [31] Go
+GemiNaut [67] | Windows | GUI | GPL 3.0 | C# [68] for Microsoft Windows [69]
+=> https://www.marmaladefoo.com/pages/geminaut [67] GemiNaut
+=> https://en.wikipedia.org/wiki/C_Sharp_(programming_language) [68] C#
+=> https://en.wikipedia.org/wiki/Microsoft_Windows [69] Microsoft Windows
+gemini.filter.dpi [70] | | Plugin (Dillo [56]) | MIT | Go [31]
+=> https://github.com/boomlinde/gemini.filter.dpi [70] gemini.filter.dpi
+=> https://en.wikipedia.org/wiki/Dillo [56] Dillo
+=> https://en.wikipedia.org/wiki/Go_(programming_language) [31] Go
+Geopard [71] | | GUI (GTK) | GPL 3.0 | Rust [38], GTK [48]
+=> https://ranfdev.com/projects/geopard/ [71] Geopard
+=> https://en.wikipedia.org/wiki/Rust_(programming_language) [38] Rust
+=> https://en.wikipedia.org/wiki/GTK [48] GTK
+gmni [72] | | Terminal (CLI) | GPL 3.0 | C [33]
+=> https://sr.ht/~sircmpwn/gmni [72] gmni
+=> https://en.wikipedia.org/wiki/C_(programming_language) [33] C
+gplaces [73] | Linux | Terminal (CLI) | GPL 3.0 or later | C [33]
+=> https://github.com/dimkr/gplaces [73] gplaces
+=> https://en.wikipedia.org/wiki/C_(programming_language) [33] C
+Jimmy [74] | macOS | App | MIT | Swift [60]
+=> https://github.com/jfoucher/Jimmy [74] Jimmy
+=> https://en.wikipedia.org/wiki/Swift_(programming_language) [60] Swift
+Kristall [75] | | GUI (Qt) | GPL 2.0 | C++ [76], Qt [77]
+=> https://kristall.random-projects.net/ [75] Kristall
+=> https://en.wikipedia.org/wiki/C++ [76] C++
+=> https://en.wikipedia.org/wiki/Qt_(software) [77] Qt
+Lagrange [78] | Windows, macOS, Linux, iOS, Android | GUI | 2 Clause BSD | C [33], SDL [79]
+=> https://gmi.skyjake.fi/lagrange [78] Lagrange
+=> https://en.wikipedia.org/wiki/C_(programming_language) [33] C
+=> https://en.wikipedia.org/wiki/Simple_DirectMedia_Layer [79] SDL
+Moonlander [80] | Linux | GUI (GTK) | MIT | Rust [38], GTK [48]
+=> https://sr.ht/~admicos/moonlander [80] Moonlander
+=> https://en.wikipedia.org/wiki/Rust_(programming_language) [38] Rust
+=> https://en.wikipedia.org/wiki/GTK [48] GTK
+Offpunk [81] | | Terminal (CLI) | AGPL | Python [41]
+=> https://offpunk.net/ [81] Offpunk
+=> https://en.wikipedia.org/wiki/Python_(programming_language) [41] Python
+Rocketeer [82] | iOS, macOS | App | | Swift [60]
+=> https://vaccor.space/rocketeer/ [82] Rocketeer
+=> https://en.wikipedia.org/wiki/Swift_(programming_language) [60] Swift
+Rosy Crow [83] | Android | Mobile App | MIT | C# [68], MAUI [84]
+=> https://rosy-crow.app/ [83] Rosy Crow
+=> https://en.wikipedia.org/wiki/C_Sharp_(programming_language) [68] C#
+=> https://en.wikipedia.org/wiki/.NET_MAUI [84] MAUI
+Seren [85] | Android | Mobile App | | Kotlin [46]
+=> https://orllewin.neocities.org/seren/ [85] Seren
+=> https://en.wikipedia.org/wiki/Kotlin_(programming_language) [46] Kotlin
+SpaceMonkey [86] | Linux | GUI, Mobile App | MIT | Go [31], GTK [48]
+=> https://codeberg.org/reiver/spacemonkey [86] SpaceMonkey
+=> https://en.wikipedia.org/wiki/Go_(programming_language) [31] Go
+=> https://en.wikipedia.org/wiki/GTK [48] GTK
+Starfish [87] | elementary OS/Linux | GUI | GPL 3.0 | Vala [88], GTK [48]
+=> https://github.com/starfish-app/Starfish/ [87] Starfish
+=> https://en.wikipedia.org/wiki/Vala_(programming_language) [88] Vala
+=> https://en.wikipedia.org/wiki/GTK [48] GTK
+Tinmop [89] | | Terminal (TUI) or GUI | GPL 3.0+ | Common lisp [90]
+=> https://autistici.org/interzona/tinmop.html [89] Tinmop
+=> https://en.wikipedia.org/wiki/Common_Lisp_(programming_language) [90] Common lisp
+Telescope [91] | BSD, Linux, macOS | Terminal (TUI) | ISC | C [33]
+=> https://telescope-browser.org/ [91] Telescope
+=> https://en.wikipedia.org/wiki/C_(programming_language) [33] C
+Twin Peaks [92] | Windows | GUI | GPL 3.0 | C# [68]
+=> https://github.com/InvisibleUp/twinpeaks [92] Twin Peaks
+=> https://en.wikipedia.org/wiki/C_Sharp_(programming_language) [68] C#
+VIRGIL99 [93] | TI-99 | Terminal | | Assembly language [94]
+=> https://atariage.com/forums/topic/326428-gemini-protocol-browser-virgil99/ [93] VIRGIL99
+=> https://en.wikipedia.org/wiki/Assembly_language [94] Assembly language
+
+The Gemini software list covers client, server, libraries, and tools.[9] Gemini's founder, Solderpunk, created a client for the protocol called AV-98.[5] Gemini-to-HTTP proxy server [95] gateways such as Mozz.us can be used by web browsers lacking Gemini support.[5][10]
+=> https://en.wikipedia.org/wiki/Proxy_server [95] proxy server
+
+## See also
+
+=> https://en.wikipedia.org/wiki/Text-based_web_browser Text-based web browser
+
+## References
+
+* 1. 1 2 3 "Project Gemini FAQ" [96]. Archived [97] from the original on 27 September 2023. Retrieved 27 September 2023.
+=> https://geminiprotocol.net/docs/faq.gmi [96] "Project Gemini FAQ"
+=> https://web.archive.org/web/20230927105049/https://geminiprotocol.net/docs/faq.gmi [97] Archived
+* 2. ↑ "Gemini Info Page" [98]. Archived from the original [99] on 20 October 2021. Retrieved 20 October 2021.
+=> https://web.archive.org/web/20211020132800/https://lists.orbitalfox.eu/listinfo/gemini [98] "Gemini Info Page"
+=> https://lists.orbitalfox.eu/listinfo/gemini [99] the original
+* 3. ↑ "Gemini Usenet Newsgroup" [100]. Archived from the original [101] on 26 October 2021. Retrieved 26 October 2021.
+=> https://web.archive.org/web/20211026220037/https://lists.orbitalfox.eu/archives/gemini/2021/007388.html [100] "Gemini Usenet Newsgroup"
+=> https://lists.orbitalfox.eu/archives/gemini/2021/007388.html [101] the original
+* 4. ↑ "Project Gemini Speculative Specification v0.16.1" [102]. gemini.circumlunar.space. 23 March 2023. 5 The text/gemini media type. Response bodies of type "text/gemini" are a kind of lightweight hypertext format, which takes inspiration from gophermaps and from Markdown.
+=> https://gemini.circumlunar.space/docs/specification.gmi [102] "Project Gemini Speculative Specification v0.16.1"
+* 5. 1 2 3 Edge, Jake (10 February 2021). "Visiting another world" [103]. lwn.net. Retrieved 19 February 2021.
+=> https://lwn.net/Articles/845446/ [103] "Visiting another world"
+* 6. ↑ "Project Gemini Speculative Specification v0.16.1" [102]. gemini.circumlunar.space. 23 March 2023. 1 Overview. Connections are closed at the end of a single transaction and cannot be reused.
+=> https://gemini.circumlunar.space/docs/specification.gmi [102] "Project Gemini Speculative Specification v0.16.1"
+* 7. ↑ "Project Gemini Speculative Specification" [102]. gemini.circumlunar.space. 29 November 2020. Archived [104] from the original on 12 May 2021. Retrieved 25 June 2021. 4.2 Server certificate validation. Clients can validate TLS connections however they like (including not at all) but the strongly recommended approach is to implement a lightweight "TOFU" certificate-pinning system which treats self-signed certificates as first-class citizens.
+=> https://gemini.circumlunar.space/docs/specification.gmi [102] "Project Gemini Speculative Specification"
+=> https://web.archive.org/web/20210512232442/https://gemini.circumlunar.space/docs/specification.gmi [104] Archived
+* 8. ↑ Bortzmeyer, Stéphane [105]. "Statistics on the Gemini space" [106] Archived [107] 2021-02-11 at the Wayback Machine [108]. Proxied gemini://gemini.bortzmeyer.org/software/lupa/stats.gmi[self-published source [109]]
+=> https://en.wikipedia.org/wiki/St%C3%A9phane_Bortzmeyer [105] Bortzmeyer, Stéphane
+=> https://proxy.vulpes.one/gemini/gemini.bortzmeyer.org/software/lupa/stats.gmi [106] "Statistics on the Gemini space"
+=> https://web.archive.org/web/20210211090333/https://proxy.vulpes.one/gemini/gemini.bortzmeyer.org/software/lupa/stats.gmi [107] Archived
+=> https://en.wikipedia.org/wiki/Wayback_Machine [108] Wayback Machine
+=> https://en.wikipedia.org/wiki/Wikipedia:Verifiability [109] self-published source
+* 9. ↑ "Gemini software" [110].
+=> https://geminiprotocol.net/software/ [110] "Gemini software"
+* 10. ↑ "About Mozz.us" [111].
+=> https://portal.mozz.us/about [111] "About Mozz.us"
+
+## External links
+
+=> https://geminiprotocol.net/ Official website
+=> https://geminiprotocol.net/docs/faq.gmi Project Gemini FAQ
+
+* Gopher, Gemini, and the rise of the small Internet: Beyond the Web [112] in Linux Magazine [113]
+=> https://www.linux-magazine.com/Issues/2021/245/The-Rise-of-the-Small-Internet [112] Gopher, Gemini, and the rise of the small Internet: Beyond the Web
+=> https://en.wikipedia.org/wiki/Linux_Magazine [113] Linux Magazine
+
+=> https://portal.mozz.us/ Mozz.us Gemini-to-HTTP proxy
