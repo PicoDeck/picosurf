@@ -16,10 +16,12 @@ interface LinkRef { url: string; label: string }
 interface Image { src: string; alt: string; href: string | null }
 interface Inline { parts: Array<string | LinkRef>; images: Image[]; bare: LinkRef[] }
 
+/** Deeper nesting than this is flattened to its text, so hostile pages cannot overflow the stack. */
+const MAX_DEPTH = 200;
 const ELEMENT = 1;
 const TEXT = 3;
 /** Marks a <br> in collected text: private use, so whitespace collapsing keeps it. */
-const BR = "";
+const BR = "\uE000";
 /** Consecutive blocks of these kinds in the same group get no blank line between them. */
 const NO_GAP = new Set<Kind>(["item", "link", "quote", "image"]);
 const SKIP = new Set([
@@ -93,6 +95,7 @@ class Converter {
   private dropHeading: string | null;
   private listDepth = 0;
   private listGroup = 0;
+  private depth = 0;
 
   constructor(private readonly opts: ConvertOptions) {
     this.dropHeading = opts.dropHeading ? collapse(opts.dropHeading).toLowerCase() : null;
@@ -111,6 +114,25 @@ class Converter {
 
   /** Walks a block container: runs of inline nodes become paragraphs (or quote lines). */
   container(el: Element, quote: boolean): void {
+    if (this.depth >= MAX_DEPTH) {
+      this.add(this.lines(quote ? "quote" : "para", "", this.flat([el])));
+      return;
+    }
+    this.depth++;
+    try {
+      this.containerBody(el, quote);
+    } finally {
+      this.depth--;
+    }
+  }
+
+  private flat(nodes: Node[]): Inline {
+    const inl = emptyInline();
+    inl.parts.push(collapse(nodes.map((n) => n.textContent ?? "").join(" ")));
+    return inl;
+  }
+
+  private containerBody(el: Element, quote: boolean): void {
     let run: Node[] = [];
     const flush = () => {
       if (run.length) this.add(this.lines(quote ? "quote" : "para", "", this.inline(run)));
@@ -153,6 +175,19 @@ class Converter {
   }
 
   private list(el: Element, ordered: boolean): void {
+    if (this.depth >= MAX_DEPTH) {
+      this.add(this.lines("para", "", this.flat([el])));
+      return;
+    }
+    this.depth++;
+    try {
+      this.listBody(el, ordered);
+    } finally {
+      this.depth--;
+    }
+  }
+
+  private listBody(el: Element, ordered: boolean): void {
     if (this.listDepth === 0) this.listGroup++;
     this.listDepth++;
     let n = ordered ? (parseInt(el.getAttribute("start") ?? "1", 10) || 1) - 1 : 0;
@@ -213,6 +248,19 @@ class Converter {
 
   /** Collects inline content: text, links (as LinkRefs), images and <br> markers. */
   private inline(nodes: Node[], into: Inline = emptyInline(), href: string | null = null): Inline {
+    if (this.depth >= MAX_DEPTH) {
+      into.parts.push(...this.flat(nodes).parts);
+      return into;
+    }
+    this.depth++;
+    try {
+      return this.inlineBody(nodes, into, href);
+    } finally {
+      this.depth--;
+    }
+  }
+
+  private inlineBody(nodes: Node[], into: Inline, href: string | null): Inline {
     for (const node of nodes) {
       if (node.nodeType === TEXT) {
         into.parts.push(node.textContent ?? "");

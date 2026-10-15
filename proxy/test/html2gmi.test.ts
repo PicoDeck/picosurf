@@ -164,3 +164,15 @@ describe("pickFromSrcset", () => {
     ));
   it("returns null for an empty srcset", () => expect(pickFromSrcset("  ")).toBeNull());
 });
+
+describe("nesting depth", () => {
+  it("survives <div> nested 20,000 deep", () => {
+    const n = 20000;
+    expect(gmi("<div>".repeat(n) + "<p>deep text</p>" + "</div>".repeat(n))).toContain("deep text");
+  });
+
+  it("survives <span> nested 20,000 deep inside a paragraph", () => {
+    const n = 20000;
+    expect(gmi("<p>" + "<span>".repeat(n) + "inner" + "</span>".repeat(n) + "</p>")).toContain("inner");
+  });
+});
