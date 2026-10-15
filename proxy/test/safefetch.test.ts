@@ -70,6 +70,15 @@ describe("safeFetch", () => {
     await expect(safeFetch(url, opts(fakeFetch({})))).rejects.toMatchObject({ status: 400 });
   });
 
+  it.each(["https://user:pass@example.com/", "https://user@example.com/", "https://:pass@example.com/"])(
+    "refuses %s with 400 before fetching",
+    async (url) => {
+      const f = fakeFetch({});
+      await expect(safeFetch(url, opts(f))).rejects.toMatchObject({ status: 400, message: "URLs with credentials are not supported" });
+      expect(f.calls).toHaveLength(0);
+    },
+  );
+
   it("refuses a body whose Content-Length is over the limit without reading it", async () => {
     const f = fakeFetch({ "https://example.com/": html("x", { "Content-Length": "999999" }) });
     const up = await safeFetch("https://example.com/", opts(f));

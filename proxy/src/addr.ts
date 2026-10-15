@@ -1,17 +1,22 @@
 import ipaddr from "ipaddr.js";
 import { BlockedAddressError } from "./errors";
 
+const IPV4_COMPATIBLE: [ipaddr.IPv6, number] = [ipaddr.IPv6.parse("::"), 96];
+
 /**
  * True only for globally routable unicast addresses. ipaddr.js names every
  * special range (private, loopback, linkLocal, carrierGradeNat, uniqueLocal,
  * multicast, 6to4, teredo, rfc6052 NAT64, reserved, ...); anything other than
  * "unicast" is refused. IPv4-mapped IPv6 is judged as the IPv4 address.
+ * IPv4-compatible IPv6 (::a.b.c.d, deprecated) is refused: ipaddr.js calls
+ * all of ::/96 except :: and ::1 "unicast", so ::7f00:1 would pass.
  */
 export function isPublicIp(ip: string): boolean {
   if (!ipaddr.isValid(ip)) return false;
   let addr = ipaddr.parse(ip);
   if (addr.kind() === "ipv6") {
     const v6 = addr as ipaddr.IPv6;
+    if (v6.match(IPV4_COMPATIBLE)) return false;
     if (v6.isIPv4MappedAddress()) addr = v6.toIPv4Address();
   }
   return addr.range() === "unicast";

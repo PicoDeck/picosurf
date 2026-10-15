@@ -27,7 +27,7 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const ACCEPT =
   "text/html,application/xhtml+xml,application/rss+xml,application/atom+xml,application/xml;q=0.9,image/*;q=0.8,*/*;q=0.5";
 
-/** Parses a target URL: http or https only, fragment removed. */
+/** Parses a target URL: http or https only, no credentials, fragment removed. */
 export function parseTarget(raw: string): URL {
   let url: URL;
   try {
@@ -38,6 +38,7 @@ export function parseTarget(raw: string): URL {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new ProxyError(400, `Unsupported scheme: ${url.protocol.slice(0, -1)}`);
   }
+  if (url.username || url.password) throw new ProxyError(400, "URLs with credentials are not supported");
   url.hash = "";
   return url;
 }
