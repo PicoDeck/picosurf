@@ -217,11 +217,13 @@ class Converter {
     const code = el.querySelector("code");
     const classes = `${el.getAttribute("class") ?? ""} ${code?.getAttribute("class") ?? ""}`;
     const lang = /(?:^|\s)(?:language|lang)-([\w+#.-]+)/.exec(classes)?.[1] ?? "";
+    // textContent drops <br>, which is a line break in preformatted text too.
+    for (const br of Array.from(el.querySelectorAll("br"))) br.replaceWith("\n");
     const lines = (el.textContent ?? "")
       .replace(/\r\n?/g, "\n")
       .replace(/\t/g, "    ")
       .split("\n")
-      .map((l) => l.replace(/\s+$/, ""));
+      .map((l) => l.trimEnd()); // not /\s+$/, which is quadratic on a long run of spaces
     while (lines.length && lines[0] === "") lines.shift();
     while (lines.length && lines[lines.length - 1] === "") lines.pop();
     if (!lines.length) return;

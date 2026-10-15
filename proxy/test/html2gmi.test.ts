@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseHTML } from "linkedom";
 import { type ConvertOptions, pickFromSrcset, toGemtext } from "../src/html2gmi";
+import { HOSTILE_BYTES, msToRun } from "./helpers/timing";
 
 const gmi = (body: string, opts: Partial<ConvertOptions> = {}) => {
   const { document } = parseHTML(`<!doctype html><html><head></head><body>${body}</body></html>`);
@@ -40,6 +41,10 @@ describe("block structure", () => {
     expect(gmi('<pre><code class="language-lua">local x = 1\n\tif x then\n```nope\nend\n</code></pre>')).toBe(
       "```lua\nlocal x = 1\n    if x then\n ```nope\nend\n```\n",
     );
+  });
+
+  it("keeps <br> inside preformatted text as a line break", () => {
+    expect(gmi("<pre>one<br>two<br/><b>three<br></b>four</pre>")).toBe("```\none\ntwo\nthree\nfour\n```\n");
   });
 
   it("keeps inline code in backticks", () => {
@@ -174,5 +179,14 @@ describe("nesting depth", () => {
   it("survives <span> nested 20,000 deep inside a paragraph", () => {
     const n = 20000;
     expect(gmi("<p>" + "<span>".repeat(n) + "inner" + "</span>".repeat(n) + "</p>")).toContain("inner");
+  });
+});
+
+describe("hostile input (about 1 MB in under 1 s)", () => {
+  it("a preformatted line of spaces ending in x", () => {
+    const body = `<pre>${" ".repeat(HOSTILE_BYTES)}x</pre>`;
+    let out = "";
+    expect(msToRun(() => (out = gmi(body)))).toBeLessThan(1000);
+    expect(out.endsWith(" x\n```\n")).toBe(true);
   });
 });
