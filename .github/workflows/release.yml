@@ -1,0 +1,26 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: |
+          sudo apt-get install -y lua5.4 > /dev/null
+          lua5.4 tests/run.lua
+      - name: Check app.json version matches the tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VER="$(python3 -c 'import json; print(json.load(open("app.json"))["version"])')"
+          [ "$VER" = "$TAG" ] || { echo "app.json version $VER does not match tag $TAG"; exit 1; }
+      - name: Package
+        run: zip -9 -r "picosurf-${GITHUB_REF_NAME}.zip" app.json main.lua src
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: picosurf-*.zip
+          generate_release_notes: true
