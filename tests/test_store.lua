@@ -10,6 +10,21 @@ local function make()
     return store.new(fs, json, DIR), files, fs, json
 end
 
+-- A store holding x.json = { 1 }: the state every failed save must leave alone.
+local function withOriginal()
+    local s, files, fs, json = make()
+    T.eq(s:save("x.json", { 1 }), true)
+    return s, files, fs, json
+end
+
+-- A failed save of { 2 } leaves { 1 } in place, leaves no .tmp, and reports it.
+local function assertFailedSaveKeepsOriginal(s, files, label)
+    T.eq(s:save("x.json", { 2 }), false, label .. ": save reports failure")
+    T.eq(s:load("x.json", {})[1], 1, label .. ": original content unchanged")
+    T.eq(files[DIR .. "/x.json.tmp"], nil, label .. ": no temporary file left")
+    T.eq(s.notes[1], "Couldn't save x.json", label .. ": failure reported")
+end
+
 return {
     bookmarks_toggle_newest_first_and_persist = function()
         local s, files, fs, json = make()
@@ -82,5 +97,73 @@ return {
         T.eq(again:feedData(1).seen[1], "u")
         again:deleteFeedData(1)
         T.eq(#again:feedData(1).items, 0, "a missing feed file gives empty data")
+    end,
+    write_returning_minus_one_keeps_the_original = function()
+        local s, files, fs = withOriginal()
+        fs.failWrite = true
+        assertFailedSaveKeepsOriginal(s, files, "write -1")
+    end,
+    open_returning_nil_keeps_the_original = function()
+        local s, files, fs = withOriginal()
+        fs.failOpen = true
+        assertFailedSaveKeepsOriginal(s, files, "open nil")
+    end,
+    size_mismatch_after_close_keeps_the_original = function()
+        local s, files, fs = withOriginal()
+        fs.shortClose = true
+        assertFailedSaveKeepsOriginal(s, files, "size mismatch")
+    end,
+    json_encode_raising_keeps_the_original = function()
+        local s, files, _, json = withOriginal()
+        json.failEncode = true
+        assertFailedSaveKeepsOriginal(s, files, "encode raises")
+    end,
+    failed_rename_reports_and_the_new_value_is_recovered = function()
+        local s, _, fs = withOriginal()
+        fs.failRename = true
+        T.eq(s:save("x.json", { 2 }), false)
+        T.eq(s.notes[1], "Couldn't save x.json")
+        T.eq(s:load("x.json", {})[1], 2, "the .tmp holds the new value")
+    end,
+    recovery_reads_the_tmp_when_its_rename_fails = function()
+        local s, files, fs, json = make()
+        files[DIR .. "/x.json.tmp"] = json.encode({ 7 })
+        fs.failRename = true
+        T.eq(s:load("x.json", {})[1], 7)
+        T.ok(files[DIR .. "/x.json.tmp"] ~= nil, "the only good copy is kept")
+    end,
+    wrong_shape_bookmarks_are_set_aside = function()
+        local s, files, _, json = make()
+        files[DIR .. "/bookmarks.json"] = json.encode({ 1, 2 })
+        T.eq(#s:bookmarks(), 0)
+        T.ok(files[DIR .. "/bookmarks.json.bad"] ~= nil, "kept as .bad")
+        T.eq(files[DIR .. "/bookmarks.json"], nil)
+        T.eq(s.notes[1], "bookmarks.json was unreadable; started empty")
+        T.eq(s:toggleBookmark("https://a.test/", "A"), true, "the list works after the reset")
+    end,
+    wrong_shape_feed_index_is_set_aside = function()
+        local s, files, _, json = make()
+        files[DIR .. "/feeds/index.json"] = json.encode({ k = 1 })
+        T.eq(s:feedIndex().next_id, 1)
+        T.eq(#s:feedIndex().feeds, 0)
+        T.ok(files[DIR .. "/feeds/index.json.bad"] ~= nil, "kept as .bad")
+        T.eq(files[DIR .. "/feeds/index.json"], nil)
+        T.eq(s.notes[1], "feeds/index.json was unreadable; started empty")
+    end,
+    wrong_shape_feed_data_is_set_aside = function()
+        local s, files, _, json = make()
+        files[DIR .. "/feeds/1.json"] = json.encode({ items = "x" })
+        T.eq(#s:feedData(1).items, 0)
+        T.ok(files[DIR .. "/feeds/1.json.bad"] ~= nil, "kept as .bad")
+        T.eq(files[DIR .. "/feeds/1.json"], nil)
+        T.eq(s.notes[1], "feeds/1.json was unreadable; started empty")
+    end,
+    removing_a_missing_entry_does_nothing = function()
+        local s, files = make()
+        s:removeBookmark(1)
+        s:removeHistory(1)
+        T.eq(files[DIR .. "/bookmarks.json"], nil, "no save")
+        T.eq(files[DIR .. "/history.json"], nil, "no save")
+        T.eq(#s.notes, 0)
     end,
 }

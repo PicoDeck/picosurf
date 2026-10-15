@@ -16,40 +16,56 @@ function M:path(name)
 end
 
 -- A missing file gives `default`. A save interrupted before its rename left
--- only <name>.tmp: that becomes the file. An unreadable file is renamed
--- <name>.bad and reported in self.notes.
-function M:load(name, default)
+-- only <name>.tmp: that becomes the file, or, if that rename fails, the .tmp
+-- is read in place. An unreadable file, or one that fails valid(value), is
+-- renamed <name>.bad and reported in self.notes.
+function M:load(name, default, valid)
     local fs, p = self.fs, self:path(name)
-    if not fs.exists(p) and fs.exists(p .. ".tmp") then fs.rename(p .. ".tmp", p) end
-    local text = fs.readFile(p)
+    local tmp = p .. ".tmp"
+    local src = p
+    if not fs.exists(p) and fs.exists(tmp) then
+        if not fs.rename(tmp, p) then src = tmp end
+    end
+    local text = fs.readFile(src)
     if text == nil then return default end
     local value = self.json.decode(text)
-    if type(value) ~= "table" then
+    if type(value) ~= "table" or (valid ~= nil and not valid(value)) then
         fs.delete(p .. ".bad")
-        fs.rename(p, p .. ".bad")
+        fs.rename(src, p .. ".bad")
         self.notes[#self.notes + 1] = name .. " was unreadable; started empty"
         return default
     end
     return value
 end
 
--- Writes <name>.tmp, deletes <name>, renames: the device's rename fails when
--- the destination exists, and a power cut leaves either the old file or the
--- .tmp that load() recovers.
+-- Writes <name>.tmp and checks its size, then deletes <name> and renames.
+-- The device's rename fails when the destination exists, and a power cut
+-- leaves either the old file or the .tmp that load() recovers. Every failure
+-- before the delete leaves the original untouched; every failure is reported
+-- in self.notes.
 function M:save(name, value)
     local fs, p = self.fs, self:path(name)
+    local tmp = p .. ".tmp"
     local ok, text = pcall(self.json.encode, value)
-    if not ok then return false end
-    local f = fs.open(p .. ".tmp", "w")
-    if not f then return false end
+    if not ok then return self:saveFailed(name) end
+    local f = fs.open(tmp, "w")
+    if not f then return self:saveFailed(name) end
     local written = fs.write(f, text)
     fs.close(f)
-    if written ~= #text then
-        fs.delete(p .. ".tmp")
-        return false
+    -- The device's fs.close returns nothing, so a flush that failed on a full
+    -- card shows only as a size that disagrees with what was written.
+    if written ~= #text or fs.size(tmp) ~= #text then
+        fs.delete(tmp)
+        return self:saveFailed(name)
     end
     fs.delete(p)
-    return fs.rename(p .. ".tmp", p) == true
+    if fs.rename(tmp, p) == true then return true end
+    return self:saveFailed(name)
+end
+
+function M:saveFailed(name)
+    self.notes[#self.notes + 1] = "Couldn't save " .. (name:match("([^/]+)$") or name)
+    return false
 end
 
 local function indexOf(list, u)
@@ -59,8 +75,28 @@ local function indexOf(list, u)
     return nil
 end
 
+-- A list of entries, each a table with a string url.
+local function validEntries(list)
+    for _, v in ipairs(list) do
+        if type(v) ~= "table" or type(v.url) ~= "string" then return false end
+    end
+    return true
+end
+
+local function validIndex(v)
+    if math.tointeger(v.next_id) == nil or type(v.feeds) ~= "table" then return false end
+    for _, f in ipairs(v.feeds) do
+        if type(f) ~= "table" then return false end
+    end
+    return true
+end
+
+local function validFeedData(v)
+    return type(v.items) == "table" and (v.seen == nil or type(v.seen) == "table")
+end
+
 function M:bookmarks()
-    if not self._bookmarks then self._bookmarks = self:load("bookmarks.json", {}) end
+    if not self._bookmarks then self._bookmarks = self:load("bookmarks.json", {}, validEntries) end
     return self._bookmarks
 end
 
@@ -84,12 +120,14 @@ function M:toggleBookmark(u, title)
 end
 
 function M:removeBookmark(i)
-    table.remove(self:bookmarks(), i)
-    self:save("bookmarks.json", self:bookmarks())
+    local list = self:bookmarks()
+    if list[i] == nil then return end
+    table.remove(list, i)
+    self:save("bookmarks.json", list)
 end
 
 function M:history()
-    if not self._history then self._history = self:load("history.json", {}) end
+    if not self._history then self._history = self:load("history.json", {}, validEntries) end
     return self._history
 end
 
@@ -103,12 +141,16 @@ function M:addHistory(u, title)
 end
 
 function M:removeHistory(i)
-    table.remove(self:history(), i)
-    self:save("history.json", self:history())
+    local list = self:history()
+    if list[i] == nil then return end
+    table.remove(list, i)
+    self:save("history.json", list)
 end
 
 function M:feedIndex()
-    if not self._feedIndex then self._feedIndex = self:load("feeds/index.json", { next_id = 1, feeds = {} }) end
+    if not self._feedIndex then
+        self._feedIndex = self:load("feeds/index.json", { next_id = 1, feeds = {} }, validIndex)
+    end
     return self._feedIndex
 end
 
@@ -117,7 +159,7 @@ function M:saveFeedIndex()
 end
 
 function M:feedData(id)
-    local data = self:load("feeds/" .. id .. ".json", nil) or {}
+    local data = self:load("feeds/" .. id .. ".json", nil, validFeedData) or {}
     data.items, data.seen = data.items or {}, data.seen or {}
     return data
 end
