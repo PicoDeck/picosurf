@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
+import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { discoverFeed, renderPage } from "../src/page";
+import { type Page, discoverFeed, prepareForReader, renderPage } from "../src/page";
 import { articleHtml } from "./helpers/pages";
+import { HOSTILE_BYTES, msToRun } from "./helpers/timing";
 
 const URL_ = "https://example.com/dir/page.html";
 
@@ -85,6 +87,37 @@ describe("renderPage", () => {
     const page = renderPage(junk, URL_, "reader");
     expect(page.mode).toBe("full");
     expect(page.gemtext.startsWith("# example.com/dir/page.html\n")).toBe(true);
+  });
+
+  it("skips reader mode for an article nested more than 300 elements deep", () => {
+    const article = articleHtml().match(/<article>[\s\S]*<\/article>/)![0];
+    const html = `<html><head><title>Deep</title></head><body>${"<div>".repeat(400)}${article}${"</div>".repeat(400)}</body></html>`;
+    const page = renderPage(html, URL_, "reader");
+    expect(page.mode).toBe("full");
+    expect(page.gemtext).toContain("for details.");
+  });
+});
+
+describe("hostile input (about 1 MB in under 1 s)", () => {
+  // The whole of renderPage on 1 MB of headings takes about 1.7 s, almost all of it
+  // linkedom and Readability, so this times the pre-pass that used to be quadratic.
+  it("the reader pre-pass on 58,000 headings in one div", () => {
+    const unit = "<h2>Heading</h2>\n";
+    const html = `<html><head><title>H</title></head><body><div>${unit.repeat(Math.ceil(HOSTILE_BYTES / unit.length))}</div></body></html>`;
+    const { document } = parseHTML(html);
+    expect(msToRun(() => prepareForReader(document as unknown as Document))).toBeLessThan(1000);
+    expect(document.querySelectorAll("body > div > h2").length).toBeGreaterThan(50_000);
+  });
+
+  // linkedom's parser is itself quadratic in nesting depth (about 3 s for one 90,000-deep
+  // chain), so the hostile megabyte is 45 chains, each 2000 deep.
+  it("renderPage on 45 chains of divs, each nested 2000 deep", () => {
+    const chain = `<div>${"<div>".repeat(2000)}<p>deep text</p>${"</div>".repeat(2000)}</div>`;
+    const html = `<html><head><title>D</title></head><body>${chain.repeat(Math.ceil(HOSTILE_BYTES / chain.length))}</body></html>`;
+    let page: Page | null = null;
+    expect(msToRun(() => (page = renderPage(html, URL_, "reader")))).toBeLessThan(1000);
+    expect(page!.mode).toBe("full");
+    expect(page!.gemtext).toContain("deep text");
   });
 });
 
