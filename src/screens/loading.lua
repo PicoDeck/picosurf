@@ -1,6 +1,7 @@
 -- Loading: waits for WiFi and the clock, runs one proxy request and shows its
 -- progress; Esc cancels (spec 6.2, 6.9).
 local url = require("src.url")
+local theme = require("src.theme")
 
 local S = {}
 local RETRY_MS = 3000
@@ -76,13 +77,14 @@ function S.draw(app)
         end
         app.ui.drawSpinner(160, 120, 10, L.frame)
     end
-    d.drawText(th.margin, 150, msg:sub(1, 52), th.fg, false)
+    d.drawText(th.margin, 150, msg:sub(1, theme.cols(th)), th.fg, false)
     d.drawText(th.margin, 166, sub, th.dim, false)
     app.ui.drawFooter("Esc cancel", "")
 end
 
+-- Only Esc cancels (spec 6.2): Backspace is Back elsewhere, easy to press twice.
 function S.key(app, action)
-    if action ~= "esc" and action ~= "backspace" then return end
+    if action ~= "esc" then return end
     local L = app.loading
     if not L then return end
     local waitingWifi = L.state == "wifi"

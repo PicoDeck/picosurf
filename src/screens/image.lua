@@ -15,10 +15,14 @@ function S.draw(app)
     app.image:draw((320 - w) // 2, (320 - h) // 2)
 end
 
+-- Leaving by any route (Esc, or a menu item) lets the decoded image go.
+function S.leave(app)
+    app.image, app.imageSize = nil, nil
+    collectgarbage()
+end
+
 function S.key(app, action)
     if action == "esc" or action == "backspace" then
-        app.image = nil
-        collectgarbage()
         app:show(app.page and "page" or "home")
     end
 end

@@ -1,9 +1,12 @@
 -- Settings: proxy URL, token, font and a connection test (spec 6.8).
+local wrap = require("src.wrap")
+local theme = require("src.theme")
+
 local S = {}
 local ITEMS = { "proxy", "token", "font", "test" }
 
 function S.enter(app, args)
-    app.set = { sel = 1, firstRun = args.firstRun, from = args.from }
+    app.set = { sel = 1, firstRun = args.firstRun }
 end
 
 local function label(app, item)
@@ -35,8 +38,13 @@ function S.draw(app)
     end
     if app.baseErr then notes[#notes + 1] = app.baseErr end
     d.setFont(th.font)
-    for i, n in ipairs(notes) do
-        d.drawText(th.margin, 110 + (i - 1) * th.rowH, n, th.dim, false)
+    local cols, y = theme.cols(th), 110
+    for _, n in ipairs(notes) do
+        local s, e = wrap.wrap(n, cols)
+        for k = 1, #s do
+            d.drawText(th.margin, y, n:sub(s[k], e[k]), th.dim, false)
+            y = y + th.rowH
+        end
     end
     app.ui.drawFooter("Enter edit  Esc done", "")
 end
@@ -68,7 +76,8 @@ function S.key(app, action)
             app:ping()
         end
     elseif action == "esc" or action == "backspace" then
-        return app:show((set.from == "page" and app.page) and "page" or "home")
+        -- Opened from any screen: back to the page if there is one.
+        return app:show(app.page and "page" or "home")
     end
     app.dirty = true
 end

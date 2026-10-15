@@ -1,5 +1,7 @@
 -- Home: Feeds, Bookmarks and History lists (spec 6.2, 6.7).
 local feeds = require("src.feeds")
+local wrap = require("src.wrap")
+local theme = require("src.theme")
 
 local S = {}
 local TABS = { "Feeds", "Bookmarks", "History" }
@@ -37,7 +39,11 @@ function S.draw(app)
     local sel, top = h.sel[h.tab] or 1, h.top[h.tab] or 1
     if #list == 0 then
         app.disp.setFont(th.font)
-        app.disp.drawText(th.margin, LIST_TOP + 20, HINTS[TABS[h.tab]], th.dim, false)
+        local hint = HINTS[TABS[h.tab]]
+        local s, e = wrap.wrap(hint, theme.cols(th))
+        for k = 1, #s do
+            app.disp.drawText(th.margin, LIST_TOP + 20 + (k - 1) * th.rowH, hint:sub(s[k], e[k]), th.dim, false)
+        end
     end
     for i = top, math.min(#list, top + VISIBLE - 1) do
         local e = list[i]

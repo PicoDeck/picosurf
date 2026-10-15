@@ -56,16 +56,20 @@ function App:log(...)
 end
 
 -- Toasts are drawn by a flush and last TOAST_MS on the device; queued ones
--- show one after another. step keeps flushing until the last has expired.
-App.TOAST_MS = 3000
+-- show one after another. step keeps flushing until the last has expired,
+-- plus a margin so the final flush comes after the device's toast has gone.
+App.TOAST_MS, App.TOAST_MARGIN_MS = 3000, 250
+-- The header's clock, battery and WiFi icons are redrawn this often when idle.
+App.IDLE_REDRAW_MS = 30000
 
 function App:toast(text, style)
     self.ui.toast(text, style or self.ui.TOAST_INFO)
     self.dirty = true
     local now = self.sys.getTimeMs()
-    local base = self.toastUntil
+    local base = self.toastEnd
     if not base or now - base > 0 then base = now end
-    self.toastUntil = base + App.TOAST_MS
+    self.toastEnd = base + App.TOAST_MS
+    self.toastUntil = self.toastEnd + App.TOAST_MARGIN_MS
     self.nextToastDraw = self.nextToastDraw or now
 end
 
@@ -80,6 +84,7 @@ end
 
 function App:show(name, args)
     self:cancelLoad()
+    if self.screen and self.screen.leave then self.screen.leave(self) end
     self.screenName = name
     self.screen = self.screens[name]
     self.dirty = true
@@ -108,26 +113,39 @@ function App:step()
     end
     self:pump()
     if self.screen.update then self.screen.update(self) end
+    local now = self.sys.getTimeMs()
     if self.toastUntil then
-        local now = self.sys.getTimeMs()
         if now - self.nextToastDraw >= 0 then
             self.dirty = true
             self.nextToastDraw = now + 250
             if now - self.toastUntil >= 0 then self.toastUntil, self.nextToastDraw = nil, nil end
         end
     end
+    if self.lastDraw and now - self.lastDraw >= App.IDLE_REDRAW_MS then self.dirty = true end
     if self.dirty then
         self.dirty = false
+        self.lastDraw = now
         self.disp.clear(self.theme.bg)
         self.screen.draw(self)
         self.disp.flush()
     end
 end
 
+-- step, with a Lua error (a string) logged and shown instead of ending the
+-- app. Anything else, such as the firmware's exit sentinel, is raised again.
+-- step itself stays unguarded so host tests see errors.
+function App:guardedStep()
+    local ok, err = pcall(self.step, self)
+    if ok then return end
+    if type(err) ~= "string" then error(err, 0) end
+    self:log("error", "-", err)
+    self:show("message", { title = "Something went wrong", text = err })
+end
+
 function App:run()
     self:start()
     while not self.quit do
-        self:step()
+        self:guardedStep()
         self.sys.sleep(16)
     end
     if self.pool then self.pool:closeAll() end
@@ -236,24 +254,33 @@ function App:showResult(target, mode, r, opts)
         return self:show("image", { url = where, image = img })
     end
     self:log("error", r.status or "-", r.message)
-    self:fail(r.message, function() self:open(target, opts) end)
+    self:fail(r.message, function() self:open(target, opts) end, r.status)
 end
 
--- Parses and lays out a page; on a memory error drops the cache and tries once more.
+-- Runs fn (parsing or layout) under pcall. On an error, most likely out of
+-- memory, logs it, drops the cached bodies, collects and tries once more
+-- (spec 6.9). Returns fn's two results, or nil and "Page too large for memory".
+function App:withMemoryRetry(fn)
+    local ok, a, b = pcall(fn)
+    if ok then return a, b end
+    self:log("error", "-", a)
+    self.cache = {}
+    collectgarbage()
+    ok, a, b = pcall(fn)
+    if ok then return a, b end
+    local msg = "Page too large for memory"
+    self:log("error", "-", msg)
+    return nil, msg
+end
+
+-- Parses and lays out a page.
 function App:buildPage(finalUrl, mode, r, restore)
     local cols = theme.cols(self.theme)
-    local function parse()
+    local lines, L = self:withMemoryRetry(function()
         local lines = r.kind == "text" and gemtext.fromPlain(r.body) or gemtext.parse(r.body)
         return lines, layout.build(lines, cols)
-    end
-    local ok, lines, L = pcall(parse)
-    if not ok then
-        self:log("layout-error", lines)
-        self.cache = {}
-        collectgarbage()
-        ok, lines, L = pcall(parse)
-        if not ok then return nil, "Page too large for memory" end
-    end
+    end)
+    if not lines then return nil, L end
     local page = {
         url = finalUrl, want = mode, mode = r.mode or (r.kind == "text" and "full" or mode),
         title = r.title or gemtext.title(lines) or url.host(finalUrl), feedUrl = r.feedUrl, lines = lines, L = L,
@@ -263,16 +290,45 @@ function App:buildPage(finalUrl, mode, r, restore)
     return page
 end
 
--- After a font change: lay the current page out again for the new width.
+-- The first row of source line `li` (or of the first line after it).
+local function firstRowOf(L, li)
+    local lo, hi = 1, L.count
+    while lo < hi do
+        local mid = (lo + hi) // 2
+        if L.line[mid] < li then lo = mid + 1 else hi = mid end
+    end
+    return lo
+end
+
+-- After a font change: lay the current page out again for the new width,
+-- keeping the source line at the top and the selected link. Links are
+-- numbered in source order, so the index holds across widths. Back entries
+-- keep their old rows; restore() clamps them.
 function App:relayout()
     local p = self.page
     if not p then return end
-    p.L = layout.build(p.lines, theme.cols(self.theme))
-    p.ps = pagestate.new(p.L, theme.rows(self.theme))
+    local old = p.ps
+    local line, sel = p.L.line[old.top], old.sel
+    local L, err = self:withMemoryRetry(function() return layout.build(p.lines, theme.cols(self.theme)) end)
+    if not L then
+        self.page, self.back = nil, {}
+        return self:fail(err)
+    end
+    p.L = L
+    p.ps = pagestate.new(L, theme.rows(self.theme))
+    local top = line and firstRowOf(L, line) or 1
+    local link = sel and L.links[sel]
+    if link and link.first > top + p.ps.visible - 1 then
+        -- Longer rows pushed the link below the screen: scroll just far enough.
+        top = math.min(link.first, link.last - p.ps.visible + 1)
+    end
+    p.ps:restore(top, sel)
 end
 
-function App:fail(message, retry)
-    self:show("message", { title = "Error", text = message or "Something went wrong", retry = retry })
+-- The message screen titled "Error", or "Error <status>" for a proxy status.
+function App:fail(message, retry, status)
+    local title = status and ("Error " .. (math.tointeger(status) or status)) or "Error"
+    self:show("message", { title = title, text = message or "Something went wrong", retry = retry })
 end
 
 function App:goHome()
@@ -319,7 +375,7 @@ function App:addMenuItems()
     self.sys.addMenuItem("Reload", function() self:reload() end)
     self.sys.addMenuItem("Edit URL", function() self:editUrl() end)
     self.sys.addMenuItem("Mark all read", function() self:markAllRead() end)
-    self.sys.addMenuItem("Settings", function() self:show("settings", { from = self.screenName }) end)
+    self.sys.addMenuItem("Settings", function() self:show("settings") end)
 end
 
 -- Opens a URL in the page view. opts: mode ("reader"|"full"|"feed"),
@@ -418,13 +474,14 @@ function App:applyFeed(feed, r)
     return data
 end
 
--- F5 on a page: subscribe to its feed (the proxy finds it from a homepage).
+-- F5 on a page: subscribe to the feed it advertises (X-Feed-Url), or let the
+-- proxy look for one from the page's URL.
 function App:subscribe()
     local p = self.page
     if not p then return end
     if p.isFeedList then return self:toast("Already subscribed") end
     self:show("loading", {
-        url = p.url, as = "feed",
+        url = p.feedUrl or p.url, as = "feed",
         onCancel = function() self:show("page") end,
         onResult = function(r)
             self:show("page")

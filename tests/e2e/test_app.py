@@ -115,7 +115,8 @@ def test_subscribe_and_read(picosurf):
     sim, proxy, data = picosurf()
     seed_history(data, "https://blog.test/")
     proxy.add("https://blog.test/", "# Blog\n", title="Blog", feed="https://blog.test/feed.xml")
-    proxy.add("https://blog.test/", FEED, as_="feed", title="Blog", mode="feed", final="https://blog.test/feed.xml")
+    # The page advertises its feed (X-Feed-Url), so F5 asks for that URL.
+    proxy.add("https://blog.test/feed.xml", FEED, as_="feed", title="Blog", mode="feed")
     proxy.add("https://blog.test/1", "# One\n", title="One")
     wait(sim, r"picosurf: screen home", start_app(sim))
     wait(sim, r"picosurf: loaded https://blog\.test/", open_first_history(sim))
