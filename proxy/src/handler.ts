@@ -152,12 +152,16 @@ function plainText(text: string, headers: Record<string, string>): Response {
   return capped(text, "text/plain; charset=us-ascii", headers);
 }
 
-/** Folds to ASCII and cuts at a line boundary under OUTPUT_CAP, closing an open fence first. */
+/**
+ * Folds to ASCII and cuts at a line boundary under OUTPUT_CAP (mid-line when
+ * there is none), closing an open fence first.
+ */
 function capped(raw: string, contentType: string, headers: Record<string, string>): Response {
   let body = foldAscii(raw);
   const extra: Record<string, string> = {};
   if (body.length > OUTPUT_CAP) {
-    body = body.slice(0, body.lastIndexOf("\n", OUTPUT_CAP - 32) + 1);
+    const cut = body.lastIndexOf("\n", OUTPUT_CAP - 32);
+    body = cut === -1 ? body.slice(0, OUTPUT_CAP - 32) + "\n" : body.slice(0, cut + 1);
     if ((body.match(/^```/gm)?.length ?? 0) % 2 === 1) body += "```\n";
     body += "(Page truncated)\n";
     extra["X-Truncated"] = "1";

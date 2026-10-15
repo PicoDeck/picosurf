@@ -203,6 +203,14 @@ describe("other content and upstream errors", () => {
     expect(res.headers.get("Content-Type")).toBe("text/plain; charset=us-ascii");
     expect(await res.text()).toBe('cafe "x"');
   });
+  it("hard-cuts long output that has no line break", async () => {
+    const line = "z".repeat(300 * 1024);
+    const d = deps({ "https://example.com/t.txt": new Response(line, { headers: { "Content-Type": "text/plain" } }) });
+    const res = await get("https://example.com/t.txt", d.deps);
+    const body = await res.text();
+    expect(res.headers.get("X-Truncated")).toBe("1");
+    expect(body).toBe(line.slice(0, OUTPUT_CAP - 32) + "\n(Page truncated)\n");
+  });
   it("415s unsupported types with their size", async () => {
     const d = deps({
       "https://example.com/a.pdf": new Response("%PDF", { headers: { "Content-Type": "application/pdf", "Content-Length": "2411724" } }),
