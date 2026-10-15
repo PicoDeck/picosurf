@@ -28,7 +28,7 @@ export function parseFeed(xml: string, base: string): Feed | null {
   let doc: X;
   try {
     // Drop the DOCTYPE so no declared entity is ever expanded.
-    doc = parser.parse(xml.replace(/<!DOCTYPE[^>[]*(\[[\s\S]*?\])?\s*>/i, ""));
+    doc = parser.parse(stripDoctype(xml));
   } catch {
     return null;
   }
@@ -37,6 +37,23 @@ export function parseFeed(xml: string, base: string): Feed | null {
   const rdf = doc?.["rdf:RDF"];
   if (rdf) return rss({ ...(rdf.channel ?? {}), item: rdf.item }, base);
   return null;
+}
+
+/**
+ * Removes the first DOCTYPE declaration, internal subset included, in one
+ * linear scan (a regex here backtracked quadratically on "<!DOCTYPE [" repeated).
+ * An unterminated declaration runs to the end of the input.
+ */
+function stripDoctype(xml: string): string {
+  const start = xml.search(/<!DOCTYPE/i);
+  if (start < 0) return xml;
+  let end = xml.indexOf(">", start);
+  const subset = xml.indexOf("[", start);
+  if (subset >= 0 && (end < 0 || subset < end)) {
+    const close = xml.indexOf("]", subset);
+    end = close < 0 ? -1 : xml.indexOf(">", close);
+  }
+  return end < 0 ? xml.slice(0, start) : xml.slice(0, start) + xml.slice(end + 1);
 }
 
 function rss(channel: X, base: string): Feed {
@@ -113,7 +130,8 @@ function decodeEntities(s: string): string {
 
 /** Strips markup that HTML-typed titles carry, decodes entities, collapses whitespace. */
 function cleanTitle(s: string): string {
-  return collapse(decodeEntities(s.replace(/<[^>]*>/g, " ")));
+  // [^<>] rather than [^>]: a run of "<" without ">" would otherwise backtrack quadratically.
+  return collapse(decodeEntities(s.replace(/<[^<>]*>/g, " ")));
 }
 
 function parseDate(s: string): number | null {

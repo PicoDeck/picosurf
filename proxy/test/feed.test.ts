@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseHTML } from "linkedom";
-import { MAX_ITEMS, feedToGemtext, findFeedLink, parseFeed } from "../src/feed";
+import { type Feed, MAX_ITEMS, feedToGemtext, findFeedLink, parseFeed } from "../src/feed";
+import { HOSTILE_BYTES, msToRun } from "./helpers/timing";
 
 const BASE = "https://blog.example.com/feed.xml";
 
@@ -68,6 +69,28 @@ describe("parseFeed", () => {
 
   it.each(["hello", "<html><body>no</body></html>"])("returns null for %j", (xml) => {
     expect(parseFeed(xml, BASE)).toBeNull();
+  });
+
+  it("removes a DOCTYPE with or without an internal subset", () => {
+    const rss = `<rss version="2.0"><channel><title>T</title><item><title>i</title><link>https://e.example/1</link></item></channel></rss>`;
+    expect(parseFeed(`<?xml version="1.0"?><!DOCTYPE rss>${rss}`, BASE)?.title).toBe("T");
+    expect(parseFeed(`<!doctype rss [<!ENTITY x "a>b">]>${rss}`, BASE)?.title).toBe("T");
+  });
+});
+
+describe("parseFeed on hostile input (about 1 MB in under 1 s)", () => {
+  it("an unterminated DOCTYPE repeated", () => {
+    const xml = "<!DOCTYPE [".repeat(Math.ceil(HOSTILE_BYTES / 11));
+    let feed: Feed | null = null;
+    expect(msToRun(() => (feed = parseFeed(xml, BASE)))).toBeLessThan(1000);
+    expect(feed).toBeNull();
+  });
+
+  it("a CDATA title that is all '<'", () => {
+    const xml = `<rss><channel><title><![CDATA[${"<".repeat(HOSTILE_BYTES)}]]></title><item><link>https://e.example/1</link></item></channel></rss>`;
+    let feed: Feed | null = null;
+    expect(msToRun(() => (feed = parseFeed(xml, BASE)))).toBeLessThan(1000);
+    expect(feed!.items).toHaveLength(1);
   });
 });
 
