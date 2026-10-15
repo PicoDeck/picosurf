@@ -71,6 +71,11 @@ describe("parseFeed", () => {
     expect(parseFeed(xml, BASE)).toBeNull();
   });
 
+  it("keeps an entity named like an Object property literally", () => {
+    const xml = `<rss><channel><title><![CDATA[A &constructor; B]]></title><item><link>https://e.example/1</link></item></channel></rss>`;
+    expect(parseFeed(xml, BASE)!.title).toBe("A &constructor; B");
+  });
+
   it("removes a DOCTYPE with or without an internal subset", () => {
     const rss = `<rss version="2.0"><channel><title>T</title><item><title>i</title><link>https://e.example/1</link></item></channel></rss>`;
     expect(parseFeed(`<?xml version="1.0"?><!DOCTYPE rss>${rss}`, BASE)?.title).toBe("T");
@@ -114,6 +119,15 @@ describe("findFeedLink", () => {
       <link rel="alternate" type="application/atom+xml" href="/atom.xml"><link rel="alternate" type="application/rss+xml" href="/rss.xml">
       </head><body></body></html>`);
     expect(findFeedLink(document as unknown as Document, "https://b.example/post/1")).toBe("https://b.example/atom.xml");
+  });
+  it("skips data: links and links over 2048 characters", () => {
+    const long = `https://b.example/${"x".repeat(2040)}.xml`;
+    const { document } = parseHTML(`<html><head>
+      <link rel="alternate" type="application/rss+xml" href="data:application/rss+xml,%3Crss%3E%3C/rss%3E">
+      <link rel="alternate" type="application/rss+xml" href="${long}">
+      <link rel="alternate" type="application/atom+xml" href="/atom.xml">
+      </head><body></body></html>`);
+    expect(findFeedLink(document as unknown as Document, "https://b.example/")).toBe("https://b.example/atom.xml");
   });
   it("returns null without one", () => {
     const { document } = parseHTML("<html><head></head><body></body></html>");

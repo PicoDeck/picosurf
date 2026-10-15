@@ -124,7 +124,8 @@ function decodeEntities(s: string): string {
       const cp = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
       return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : whole;
     }
-    return NAMED_ENTITIES[e.toLowerCase()] ?? whole;
+    const name = e.toLowerCase();
+    return Object.hasOwn(NAMED_ENTITIES, name) ? NAMED_ENTITIES[name] : whole; // not &constructor;
   });
 }
 
@@ -160,14 +161,17 @@ export function feedToGemtext(feed: Feed): string {
   return lines.join("\n") + "\n";
 }
 
-/** The first <link rel="alternate"> to an RSS or Atom feed, resolved against `base`. */
+/** Feed links longer than this are skipped. */
+const MAX_FEED_URL = 2048;
+
+/** The first <link rel="alternate"> to an http(s) RSS or Atom feed, resolved against `base`. */
 export function findFeedLink(doc: Document, base: string): string | null {
   for (const el of Array.from(doc.querySelectorAll("link[rel][href]"))) {
     const rel = (el.getAttribute("rel") ?? "").toLowerCase().split(/\s+/);
     const type = (el.getAttribute("type") ?? "").toLowerCase();
     if (!rel.includes("alternate") || (type !== "application/rss+xml" && type !== "application/atom+xml")) continue;
     const href = resolve(el.getAttribute("href") ?? "", base);
-    if (href) return href;
+    if (/^https?:/i.test(href) && href.length <= MAX_FEED_URL) return href;
   }
   return null;
 }
