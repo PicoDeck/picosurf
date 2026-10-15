@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { type Page, discoverFeed, prepareForReader, renderPage } from "../src/page";
+import { LONG_ARTICLE_CHARS, MIN_COVERAGE, type Page, discoverFeed, prepareForReader, renderPage } from "../src/page";
 import { articleHtml } from "./helpers/pages";
 import { HOSTILE_BYTES, msToRun } from "./helpers/timing";
 
@@ -26,6 +26,35 @@ describe("renderPage", () => {
     const page = renderPage(html, URL_, "reader");
     expect(page.mode).toBe("full");
     expect(page.gemtext).toBe("# Links\n\n=> https://example.com/a A\n\nShort.\n");
+  });
+
+  describe("article coverage of the page (Ruling 11)", () => {
+    const lorem = articleHtml().match(/<p>(.*?)<\/p>/)![1];
+    const headlines = (n: number) =>
+      `<ul class="headlines">${Array.from({ length: n }, (_, i) => `<li><a href="/story/${i}">Headline ${i}: an important development in the news today</a></li>`).join("")}</ul>`;
+
+    it("falls back to the full page when a short article is a small part of a front page", () => {
+      const html = `<html><head><title>Front</title></head><body><main>${headlines(150)}</main>
+<section class="about"><h2>About us</h2><p>${lorem}</p><p>${lorem}</p></section></body></html>`;
+      const page = renderPage(html, URL_, "reader");
+      expect(page.mode).toBe("full");
+      expect(page.coverage).toBeNull();
+      expect(page.gemtext).toContain("=> https://example.com/story/149 Headline 149");
+    });
+
+    it("measures the coverage of a short article that stays in reader mode", () => {
+      const page = renderPage(articleHtml(), URL_, "reader");
+      expect(page.mode).toBe("reader");
+      expect(page.coverage).toBeGreaterThanOrEqual(MIN_COVERAGE);
+    });
+
+    it(`keeps an article of ${LONG_ARTICLE_CHARS} characters or more in reader mode whatever its coverage`, () => {
+      const article = `<article><h1>Long</h1>${`<p>${lorem}</p>`.repeat(12)}</article>`;
+      const html = `<html><head><title>Long</title></head><body>${article}<aside>${headlines(300)}</aside></body></html>`;
+      const page = renderPage(html, URL_, "reader");
+      expect(page.mode).toBe("reader");
+      expect(page.coverage).toBeNull();
+    });
   });
 
   it("returns the full page, navigation included, when asked", () => {

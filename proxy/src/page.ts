@@ -8,10 +8,21 @@ import { toGemtext } from "./html2gmi";
 import { collapse, hostPath } from "./text";
 
 export type PageMode = "reader" | "full";
-export interface Page { title: string; mode: PageMode; gemtext: string; feedUrl: string | null }
+export interface Page {
+  title: string;
+  mode: PageMode;
+  gemtext: string;
+  feedUrl: string | null;
+  /** Reader mode only: the share of the page's visible text that the article covers, when it was measured. */
+  coverage: number | null;
+}
 
 /** Below this much article text, reader mode gives way to the full page. */
 export const MIN_ARTICLE_CHARS = 500;
+/** An article at least this long stays in reader mode whatever share of the page it covers (Ruling 11). */
+export const LONG_ARTICLE_CHARS = 3000;
+/** A shorter article must cover at least this share of the page's visible text (Ruling 11). */
+export const MIN_COVERAGE = 0.25;
 /** Pages with elements nested deeper than this go straight to the full page. */
 export const MAX_READER_DEPTH = 300;
 const JUNK = "script, style, noscript, svg, template, iframe, canvas, video, audio, [hidden], [aria-hidden=true]";
@@ -26,6 +37,10 @@ export function renderPage(html: string, finalUrl: string, want: PageMode): Page
 
   // Readability is super-linear in nesting depth (and recurses), so deep pages skip it.
   const readable = want === "reader" && doc.documentElement !== null && !deeperThan(doc.documentElement, MAX_READER_DEPTH);
+  // The full-mode body, junk removed: built at most once, for the coverage check or the fallback.
+  let fullRoot: Element | null | undefined;
+  const full = () => (fullRoot === undefined ? (fullRoot = junkFreeBody(readable ? parse(html) : doc)) : fullRoot); // Readability mutates `doc`
+
   if (readable) {
     let article: ReturnType<Readability["parse"]> = null;
     try {
@@ -34,24 +49,40 @@ export function renderPage(html: string, finalUrl: string, want: PageMode): Page
     } catch {
       /* junk HTML: fall through to the full page */
     }
-    if (article?.content && collapse(article.textContent ?? "").length >= MIN_ARTICLE_CHARS) {
-      const title = collapse(article.title ?? "") || docTitle || hostPath(finalUrl);
-      const body = parse(`<!doctype html><html><body>${article.content}</body></html>`).body;
-      const byline = [article.siteName, article.byline, isoDate(article.publishedTime)]
-        .map((s) => collapse(s ?? ""))
-        .filter(Boolean)
-        .join(" - ");
-      return { title, mode: "reader", feedUrl, gemtext: header(title, byline) + toGemtext(body, { base, dropHeading: title }) };
+    const chars = collapse(article?.textContent ?? "").length;
+    if (article?.content && chars >= MIN_ARTICLE_CHARS) {
+      const coverage = chars >= LONG_ARTICLE_CHARS ? null : coverageOf(chars, full());
+      if (coverage === null || coverage >= MIN_COVERAGE) {
+        const title = collapse(article.title ?? "") || docTitle || hostPath(finalUrl);
+        const body = parse(`<!doctype html><html><body>${article.content}</body></html>`).body;
+        const byline = [article.siteName, article.byline, isoDate(article.publishedTime)]
+          .map((s) => collapse(s ?? ""))
+          .filter(Boolean)
+          .join(" - ");
+        const gemtext = header(title, byline) + toGemtext(body, { base, dropHeading: title });
+        return { title, mode: "reader", feedUrl, coverage, gemtext };
+      }
     }
   }
 
-  const full = readable ? parse(html) : doc; // Readability mutated `doc`
   const title = docTitle || hostPath(finalUrl);
+  const root = full();
+  if (!root) return { title, mode: "full", feedUrl, coverage: null, gemtext: header(title, "") };
+  return { title, mode: "full", feedUrl, coverage: null, gemtext: header(title, "") + toGemtext(root, { base, dropHeading: title }) };
+}
+
+/** The body of a full-mode parse with junk elements removed; null for junk input. */
+function junkFreeBody(doc: Document): Element | null {
   // linkedom's `body` getter throws when there is no documentElement (junk input).
-  const root = full.documentElement ? (full.body ?? full.documentElement) : null;
-  if (!root) return { title, mode: "full", feedUrl, gemtext: header(title, "") };
-  for (const el of Array.from(full.querySelectorAll(JUNK))) el.remove();
-  return { title, mode: "full", feedUrl, gemtext: header(title, "") + toGemtext(root, { base, dropHeading: title }) };
+  const root = doc.documentElement ? (doc.body ?? doc.documentElement) : null;
+  if (root) for (const el of Array.from(doc.querySelectorAll(JUNK))) el.remove();
+  return root;
+}
+
+/** The share of the page's visible text (`root`'s collapsed text) that `chars` characters of article cover. */
+function coverageOf(chars: number, root: Element | null): number {
+  const visible = root ? collapse(root.textContent ?? "").length : 0;
+  return visible > 0 ? chars / visible : 1;
 }
 
 export function discoverFeed(html: string, finalUrl: string): string | null {

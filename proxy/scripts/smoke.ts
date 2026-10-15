@@ -23,7 +23,7 @@ const lines = process.argv[2] ? readFileSync(process.argv[2], "utf8").split("\n"
 const deps = nodeDeps();
 const env = { PROXY_TOKEN: "smoke" };
 
-console.log(["status", "mode", "KB", "links", "wall ms", "cpu ms", "url"].join("\t"));
+console.log(["status", "mode", "coverage", "KB", "links", "wall ms", "cpu ms", "url"].join("\t"));
 for (const line of lines.map((l) => l.trim()).filter(Boolean)) {
   const [as, url] = line.startsWith("feed ") ? ["feed", line.slice(5).trim()] : ["reader", line];
   const started = performance.now();
@@ -37,7 +37,8 @@ for (const line of lines.map((l) => l.trim()).filter(Boolean)) {
   const used = process.cpuUsage(cpu);
   const links = body.split("\n").filter((l) => l.startsWith("=> ")).length;
   const mode = res.headers.get("X-Mode") ?? (res.ok ? "-" : body.trim());
+  const coverage = res.headers.get("X-Coverage") ?? "-";
   console.log(
-    [res.status, mode, (body.length / 1024).toFixed(1), links, Math.round(performance.now() - started), Math.round((used.user + used.system) / 1000), url].join("\t"),
+    [res.status, mode, coverage, (body.length / 1024).toFixed(1), links, Math.round(performance.now() - started), Math.round((used.user + used.system) / 1000), url].join("\t"),
   );
 }

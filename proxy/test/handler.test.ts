@@ -78,6 +78,11 @@ describe("pages", () => {
     const res = await get("https://example.com/", d.deps, "full");
     expect(res.headers.get("X-Mode")).toBe("full");
   });
+  it("sends X-Coverage with two decimals in reader mode only", async () => {
+    const d = deps({ "https://example.com/": html(articleHtml()) });
+    expect((await get("https://example.com/", d.deps)).headers.get("X-Coverage")).toMatch(/^[01]\.\d\d$/);
+    expect((await get("https://example.com/", d.deps, "full")).headers.get("X-Coverage")).toBeNull();
+  });
   it("decodes windows-1252 pages (Review Focus 1)", async () => {
     const bytes = Uint8Array.from("<html><head><title>Q</title></head><body><p>He said \x93hi\x94 caf\xe9</p></body></html>", (c) => c.charCodeAt(0));
     const d = deps({ "https://example.com/": new Response(bytes, { headers: { "Content-Type": "text/html; charset=windows-1252" } }) });

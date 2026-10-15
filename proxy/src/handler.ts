@@ -73,6 +73,7 @@ async function route(req: Request, env: Env, deps: Deps): Promise<Response> {
         "X-Mode": page.mode,
         "X-Title": headerValue(page.title),
         ...(page.feedUrl ? { "X-Feed-Url": page.feedUrl } : {}),
+        ...(page.coverage !== null ? { "X-Coverage": page.coverage.toFixed(2) } : {}),
       });
     }
     case "feed":

@@ -15,7 +15,9 @@ GET /v1/get?url=<absolute URL>[&as=reader|full|feed]
 Authorization: Bearer <token>
 ```
 
-Response headers: `X-Final-Url`, `X-Title`, `X-Mode`, `X-Feed-Url`, `X-Truncated`. Errors are one line of plain text with a status code: 400, 401, 403, 404 (unknown path), 405 (anything but GET), 413, 415, 500, 502 or 504. A 502 caused by the upstream site also carries `X-Upstream-Status`.
+Response headers: `X-Final-Url`, `X-Title`, `X-Mode`, `X-Feed-Url`, `X-Truncated`, `X-Coverage`. Errors are one line of plain text with a status code: 400, 401, 403, 404 (unknown path), 405 (anything but GET), 413, 415, 500, 502 or 504. A 502 caused by the upstream site also carries `X-Upstream-Status`.
+
+Reader mode needs an article of at least 500 characters. An article under 3000 characters must also cover at least a quarter of the page's visible text; otherwise the proxy returns the full page. `X-Coverage` reports that share with two decimals, for example `0.94`. It is sent only in reader mode, and only when the share was measured, which is for articles under 3000 characters.
 
 ## Image limits
 
