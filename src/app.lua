@@ -34,6 +34,7 @@ function App:loadConfig()
     local c = self.pc.config
     self.cfg = { proxyUrl = c.get("proxy_url") or "", token = c.get("token") or "", font = c.get("font") or "scientifica" }
     self.theme = theme.new(self.disp, self.cfg.font)
+    self:cancelRefresh() -- before closeAll, which would fail its requests
     if self.pool then self.pool:closeAll() end
     self.pool, self.base, self.baseErr = nil, nil, nil
     if self.cfg.proxyUrl ~= "" then
@@ -447,6 +448,10 @@ function App:openFeed(feed, opts)
     opts = opts or {}
     self:cancelRefresh()
     if not feeds.isStale(feed, self:now()) then return self:showFeed(feed, opts) end
+    if self.pc.network.getStatus() ~= 1 then -- spec 6.7, 6.9: saved feeds work offline
+        self:showFeed(feed, opts)
+        return self:toast("Offline - showing saved items", self.ui.TOAST_WARNING)
+    end
     self:show("loading", {
         url = feed.url, as = "feed",
         onCancel = function() self:show(self.page and "page" or "home") end,
@@ -478,13 +483,31 @@ function App:showFeed(feed, opts)
     self:show("page")
 end
 
--- F5 on the Feeds tab: refresh every feed, two requests at a time.
+-- F5 on the Feeds tab: refresh every feed, two requests at a time. Without
+-- WiFi, or before the clock is set for TLS, it doesn't start: the loading
+-- screen's waits would hold the Feeds tab.
 function App:refreshAll()
     if self.refresh then return end
     local list = feeds.sorted(self.store:feedIndex())
     if #list == 0 then return self:toast("No feeds to refresh") end
+    if self.pc.network.getStatus() ~= 1 then
+        self:log("error", "-", "No WiFi")
+        return self:toast("No WiFi - can't refresh feeds", self.ui.TOAST_WARNING)
+    end
+    if self.base and self.base.tls and not self.sys.getClock().synced then
+        self:log("error", "-", "Clock not set")
+        return self:toast("Clock not set yet - try again in a moment", self.ui.TOAST_WARNING)
+    end
     self.refresh = { list = list, nextIndex = 1, active = 0, done = 0, ok = 0, failed = 0, handles = {} }
     self:pumpRefresh()
+end
+
+-- Counts one failed feed and keeps the first reason for the summary.
+local function refreshFailed(self, R, status, message)
+    message = message or "Request failed"
+    self:log("error", status or "-", message)
+    R.failed = R.failed + 1
+    R.firstError = R.firstError or message
 end
 
 function App:pumpRefresh()
@@ -494,21 +517,23 @@ function App:pumpRefresh()
         local feed = R.list[R.nextIndex]
         R.nextIndex = R.nextIndex + 1
         R.active = R.active + 1
-        local handle = self:request(feed.url, "feed", function(r)
+        local handle, err = self:request(feed.url, "feed", function(r)
             if self.refresh ~= R then return end
             R.active, R.done = R.active - 1, R.done + 1
             if r.kind == "gemini" then
-                self:applyFeed(feed, r)
+                -- Unsubscribed meanwhile: saving would recreate its file.
+                if self:feedById(feed.id) then self:applyFeed(feed, r) end
                 R.ok = R.ok + 1
             else
-                R.failed = R.failed + 1
+                refreshFailed(self, R, r.status, r.message) -- a "clock" result too
             end
             self:pumpRefresh()
         end)
         if handle then
             R.handles[#R.handles + 1] = handle
         else
-            R.active, R.done, R.failed = R.active - 1, R.done + 1, R.failed + 1
+            R.active, R.done = R.active - 1, R.done + 1
+            refreshFailed(self, R, nil, err)
         end
     end
     if self.refresh == R and R.done >= #R.list then
@@ -517,7 +542,8 @@ function App:pumpRefresh()
         if R.failed == 0 then
             self:toast("Feeds refreshed", self.ui.TOAST_SUCCESS)
         else
-            self:toast(R.failed .. " feeds failed to refresh", self.ui.TOAST_WARNING)
+            self:toast(R.failed .. (R.failed == 1 and " feed" or " feeds") .. " failed to refresh: " .. R.firstError,
+                self.ui.TOAST_WARNING)
         end
     end
     self.dirty = true

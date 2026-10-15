@@ -204,4 +204,93 @@ return {
         T.eq(#app.store:history(), 0)
         T.ok(not F.screenText():find("[>] ", 1, true), "nothing selected when empty")
     end,
+    refresh_without_wifi_says_so_and_starts_nothing = function()
+        local app, F = boot()
+        subscribe(app, F, "blog.test/")
+        F.press("f2"); steps(app, 1)
+        F.netStatus = 0
+        local before = #F.requests
+        F.press("f5"); steps(app)
+        T.eq(#F.requests, before)
+        T.eq(app.refresh, nil)
+        T.ok(F.hasToast("No WiFi - can't refresh feeds"))
+        T.ok(F.hasLog("picosurf: error - No WiFi"))
+    end,
+    refresh_before_the_clock_is_set_says_so_and_starts_nothing = function()
+        local app, F = boot()
+        subscribe(app, F, "blog.test/")
+        F.press("f2"); steps(app, 1)
+        F.synced = false
+        local before = #F.requests
+        F.press("f5"); steps(app)
+        T.eq(#F.requests, before)
+        T.eq(app.refresh, nil)
+        T.ok(F.hasToast("Clock not set yet - try again in a moment"))
+        T.ok(F.hasLog("picosurf: error - Clock not set"))
+    end,
+    a_failed_feed_is_logged_and_named_in_the_toast = function()
+        local app, F = boot()
+        subscribe(app, F, "blog.test/")
+        subscribe(app, F, "news.test/")
+        local routes = {}
+        for k, v in pairs(ROUTES) do routes[k] = v end
+        routes["https://news.test/rss|feed"] = nil
+        F.responder = fakepc.proxy(routes, "tok")
+        F.press("f2"); steps(app, 1)
+        F.press("f5"); steps(app)
+        T.ok(F.hasLog("picosurf: error 502 Site returned 404 Not Found"))
+        T.ok(F.hasLog("picosurf: refresh done ok=1 failed=1"))
+        T.ok(F.hasToast("1 feed failed to refresh: Site returned 404 Not Found"))
+    end,
+    two_failed_feeds_use_the_plural = function()
+        local app, F = boot()
+        subscribe(app, F, "blog.test/")
+        subscribe(app, F, "news.test/")
+        F.responder = fakepc.proxy({}, "tok")
+        F.press("f2"); steps(app, 1)
+        F.press("f5"); steps(app)
+        T.ok(F.hasToast("2 feeds failed to refresh: Site returned 404 Not Found"))
+    end,
+    unsubscribing_during_a_refresh_leaves_no_feed_file = function()
+        local app, F = boot()
+        subscribe(app, F, "blog.test/")
+        F.press("f2"); steps(app, 1)
+        F.holding = true
+        F.press("f5"); steps(app, 1)
+        F.press("del"); steps(app, 1)
+        T.eq(#app.store:feedIndex().feeds, 0)
+        F.holding = false
+        steps(app)
+        T.eq(F.files["/data/net.picodeck.picosurf/feeds/1.json"], nil)
+        T.eq(#app.store:feedIndex().feeds, 0)
+    end,
+    saving_a_setting_during_a_refresh_cancels_it = function()
+        local app, F = boot()
+        subscribe(app, F, "blog.test/")
+        subscribe(app, F, "news.test/")
+        F.press("f2"); steps(app, 1)
+        F.holding = true
+        F.press("f5"); steps(app, 1)
+        F.menu["Settings"](); steps(app, 1)
+        F.press("down"); F.press("down"); F.press("enter"); steps(app, 1)
+        T.ok(F.hasLog("picosurf: refresh cancelled"))
+        F.holding = false
+        steps(app)
+        T.ok(not F.hasLog("refresh done"))
+        T.ok(not F.hasToast("failed to refresh"))
+    end,
+    a_stale_feed_opened_offline_shows_its_saved_items = function()
+        local app, F = boot()
+        subscribe(app, F, "blog.test/")
+        F.epoch = F.epoch + 1800
+        F.netStatus = 0
+        F.press("f2"); steps(app, 1)
+        local before = #F.requests
+        F.press("enter"); steps(app)
+        T.eq(app.screenName, "page")
+        T.eq(app.page.isFeedList, true)
+        T.ok(F.hasToast("Offline - showing saved items"))
+        T.eq(#F.requests, before)
+        T.ok(F.screenText():find("* 2026-10-13 One", 1, true))
+    end,
 }
