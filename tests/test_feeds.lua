@@ -80,4 +80,17 @@ return {
         local empty = feeds.lines({ title = "E" }, { items = {}, seen = {} })
         T.eq(empty[3].t, "text")
     end,
+    sorted_summarize_and_lines_tolerate_missing_fields = function() -- T8
+        local idx = { feeds = { { id = 1, url = "https://a.test/" }, { id = 2, url = "u", title = "B", newest = "2026-10-13" } } }
+        local got = {}
+        for i, f in ipairs(feeds.sorted(idx)) do got[i] = f.id end
+        T.eq(table.concat(got, ","), "2,1")
+        local data = { items = { { url = "https://f.test/1" }, { url = "https://f.test/2", date = "2026-10-12" } }, seen = {} }
+        local f = {}
+        feeds.summarize(f, data)
+        T.eq(f.newest, "2026-10-12"); T.eq(f.unread, 2)
+        local lines = feeds.lines({ url = "https://a.test/" }, data)
+        T.eq(lines[1].text, "https://a.test/")
+        T.eq(lines[3].text, "* "); T.eq(lines[3].url, "https://f.test/1")
+    end,
 }

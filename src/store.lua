@@ -17,8 +17,9 @@ end
 
 -- A missing file gives `default`. A save interrupted before its rename left
 -- only <name>.tmp: that becomes the file, or, if that rename fails, the .tmp
--- is read in place. An unreadable file, or one that fails valid(value), is
--- renamed <name>.bad and reported in self.notes.
+-- is read in place. A file that exists but can't be read or decoded, or that
+-- fails valid(value), is renamed <name>.bad (so the next save can't replace
+-- it) and reported in self.notes.
 function M:load(name, default, valid)
     local fs, p = self.fs, self:path(name)
     local tmp = p .. ".tmp"
@@ -27,8 +28,8 @@ function M:load(name, default, valid)
         if not fs.rename(tmp, p) then src = tmp end
     end
     local text = fs.readFile(src)
-    if text == nil then return default end
-    local value = self.json.decode(text)
+    if text == nil and not fs.exists(src) then return default end
+    local value = text and self.json.decode(text)
     if type(value) ~= "table" or (valid ~= nil and not valid(value)) then
         fs.delete(p .. ".bad")
         fs.rename(src, p .. ".bad")
@@ -64,7 +65,7 @@ function M:save(name, value)
 end
 
 function M:saveFailed(name)
-    self.notes[#self.notes + 1] = "Couldn't save " .. (name:match("([^/]+)$") or name)
+    self.notes[#self.notes + 1] = "Couldn't save " .. name
     return false
 end
 
@@ -83,16 +84,32 @@ local function validEntries(list)
     return true
 end
 
+local function optString(v)
+    return v == nil or type(v) == "string"
+end
+
+-- The fields the UI relies on: an integer id, a url, and an optional title
+-- and newest date.
 local function validIndex(v)
     if math.tointeger(v.next_id) == nil or type(v.feeds) ~= "table" then return false end
     for _, f in ipairs(v.feeds) do
-        if type(f) ~= "table" then return false end
+        if type(f) ~= "table" or type(f.id) ~= "number" or math.tointeger(f.id) == nil
+            or type(f.url) ~= "string" or not optString(f.title) or not optString(f.newest) then
+            return false
+        end
     end
     return true
 end
 
+-- Items each need a url; date and title are optional strings.
 local function validFeedData(v)
-    return type(v.items) == "table" and (v.seen == nil or type(v.seen) == "table")
+    if type(v.items) ~= "table" or (v.seen ~= nil and type(v.seen) ~= "table") then return false end
+    for _, it in ipairs(v.items) do
+        if type(it) ~= "table" or type(it.url) ~= "string" or not optString(it.date) or not optString(it.title) then
+            return false
+        end
+    end
+    return true
 end
 
 function M:bookmarks()

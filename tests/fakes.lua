@@ -8,12 +8,16 @@ local M = {}
 --   fs.failWrite   fs.write returns -1
 --   fs.shortClose  fs.close keeps one byte less than was written
 --   fs.failRename  fs.rename always fails
+--   fs.failRead    fs.readFile returns nil, even for a file that exists
 function M.fs()
     local files, dirs = {}, {}
     local fs = {}
     function fs.mkdir(p) dirs[p] = true; return true end
     function fs.exists(p) return files[p] ~= nil or dirs[p] == true end
-    function fs.readFile(p) return files[p] end
+    function fs.readFile(p)
+        if fs.failRead then return nil end
+        return files[p]
+    end
     function fs.size(p)
         if files[p] == nil then return -1 end
         return #files[p]

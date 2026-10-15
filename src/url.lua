@@ -33,11 +33,12 @@ function M.parseBase(base)
         return nil, "Proxy URL must start with https:// or http://"
     end
     local hostport, path = rest:match("^([^/]*)(.*)$")
-    local host, port = hostport:match("^(.-):(%d+)$")
+    -- The port follows the last colon; a colon inside [...] is not one.
+    local host, port = hostport:match("^(.*):([^:%]]*)$")
     host = host or hostport
     if host == "" then return nil, "Proxy URL has no host" end
     if port then
-        port = math.tointeger(tonumber(port))
+        port = port:match("^%d+$") and math.tointeger(tonumber(port))
         if not port or port < 1 or port > 65535 then return nil, "Proxy URL has a bad port" end
     else
         port = scheme == "https" and 443 or 80

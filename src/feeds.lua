@@ -58,7 +58,8 @@ function M.summarize(feed, data, now)
     feed.unread = M.unreadCount(data)
     local newest = ""
     for _, it in ipairs(data.items) do
-        if it.date > newest then newest = it.date end
+        local date = it.date or ""
+        if date > newest then newest = date end
     end
     feed.newest = newest
     if now then feed.fetched_at = now end
@@ -96,21 +97,23 @@ function M.sorted(index)
     local list = {}
     for i, f in ipairs(index.feeds) do list[i] = f end
     table.sort(list, function(a, b)
-        if a.newest ~= b.newest then return a.newest > b.newest end
-        return a.title:lower() < b.title:lower()
+        local an, bn = a.newest or "", b.newest or ""
+        if an ~= bn then return an > bn end
+        return (a.title or ""):lower() < (b.title or ""):lower()
     end)
     return list
 end
 
 function M.lines(feed, data)
     local set = seenSet(data)
-    local lines = { { t = "h1", text = feed.title }, { t = "blank", text = "" } }
+    local lines = { { t = "h1", text = feed.title or feed.url or "" }, { t = "blank", text = "" } }
     if #data.items == 0 then
         lines[#lines + 1] = { t = "text", text = "No articles yet. F5 on the Feeds tab refreshes." }
     end
     for _, it in ipairs(data.items) do
         local read = set[it.url] == true
-        local label = (read and "  " or "* ") .. (it.date ~= "" and (it.date .. " ") or "") .. it.title
+        local date = it.date or ""
+        local label = (read and "  " or "* ") .. (date ~= "" and (date .. " ") or "") .. (it.title or "")
         lines[#lines + 1] = { t = "link", url = it.url, text = label, dim = read }
     end
     return lines

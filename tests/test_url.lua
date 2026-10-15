@@ -43,4 +43,12 @@ return {
         b, err = url.parseBase("https://h:99999")
         T.eq(err, "Proxy URL has a bad port")
     end,
+    parse_base_refuses_an_empty_or_non_numeric_port = function() -- T1
+        local b, err = url.parseBase("https://host:")
+        T.eq(b, nil); T.eq(err, "Proxy URL has a bad port")
+        b, err = url.parseBase("https://host:abc/x")
+        T.eq(b, nil); T.eq(err, "Proxy URL has a bad port")
+        b, err = url.parseBase("http://host:/")
+        T.eq(b, nil); T.eq(err, "Proxy URL has a bad port")
+    end,
 }

@@ -166,4 +166,54 @@ return {
         T.eq(files[DIR .. "/history.json"], nil, "no save")
         T.eq(#s.notes, 0)
     end,
+    a_file_that_exists_but_cannot_be_read_is_set_aside = function() -- M6
+        local s, files, fs, json = make()
+        files[DIR .. "/history.json"] = json.encode({ { url = "https://a.test/" } })
+        fs.failRead = true
+        T.eq(#s:history(), 0)
+        T.ok(files[DIR .. "/history.json.bad"] ~= nil, "kept as .bad")
+        T.eq(files[DIR .. "/history.json"], nil)
+        T.eq(s.notes[1], "history.json was unreadable; started empty")
+        fs.failRead = false
+        s:addHistory("https://b.test/", "B")
+        T.ok(files[DIR .. "/history.json.bad"] ~= nil, "the next save leaves it alone")
+    end,
+    a_failed_save_names_the_file_as_given = function() -- T7
+        local s, _, fs = make()
+        fs.failOpen = true
+        T.eq(s:saveFeedData(3, { items = {}, seen = {} }), false)
+        T.eq(s.notes[1], "Couldn't save feeds/3.json")
+    end,
+    feed_index_entries_with_wrong_field_types_are_set_aside = function() -- T8
+        local bad = {
+            { url = "u" }, { id = "1", url = "u" }, { id = 1.5, url = "u" }, { id = 1 },
+            { id = 1, url = 5 }, { id = 1, url = "u", title = 3 }, { id = 1, url = "u", newest = 20261013 },
+        }
+        for i, f in ipairs(bad) do
+            local s, files, _, json = make()
+            files[DIR .. "/feeds/index.json"] = json.encode({ next_id = 2, feeds = { f } })
+            T.eq(#s:feedIndex().feeds, 0, "entry " .. i)
+            T.ok(files[DIR .. "/feeds/index.json.bad"] ~= nil, "entry " .. i .. " kept as .bad")
+        end
+    end,
+    a_feed_without_title_or_newest_is_kept = function() -- T8
+        local s, files, _, json = make()
+        files[DIR .. "/feeds/index.json"] = json.encode({ next_id = 2, feeds = { { id = 1, url = "u" } } })
+        T.eq(#s:feedIndex().feeds, 1)
+        T.eq(#s.notes, 0)
+    end,
+    feed_items_with_wrong_field_types_are_set_aside = function() -- T8
+        local bad = {
+            { "x" }, { { title = "t" } }, { { url = 1 } }, { { url = "u", date = 5 } }, { { url = "u", title = false } },
+        }
+        for i, items in ipairs(bad) do
+            local s, files, _, json = make()
+            files[DIR .. "/feeds/1.json"] = json.encode({ items = items, seen = {} })
+            T.eq(#s:feedData(1).items, 0, "items " .. i)
+            T.ok(files[DIR .. "/feeds/1.json.bad"] ~= nil, "items " .. i .. " kept as .bad")
+        end
+        local s, files, _, json = make()
+        files[DIR .. "/feeds/1.json"] = json.encode({ items = { { url = "u" } }, seen = {} })
+        T.eq(#s:feedData(1).items, 1, "url alone is enough")
+    end,
 }

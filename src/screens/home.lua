@@ -13,7 +13,7 @@ local function items(app, tab)
     if name == "Feeds" then
         local out = {}
         for i, f in ipairs(feeds.sorted(app.store:feedIndex())) do
-            out[i] = { title = f.title .. " (" .. f.unread .. ")", feed = f }
+            out[i] = { title = (f.title or f.url) .. " (" .. (f.unread or 0) .. ")", feed = f }
         end
         return out
     end
@@ -63,7 +63,7 @@ local function remove(app, h, entry, sel)
     local name = TABS[h.tab]
     if name == "Feeds" then
         local f = entry.feed
-        if not app.ui.confirm("Unsubscribe from " .. f.title:sub(1, 30) .. "?") then return end
+        if not app.ui.confirm("Unsubscribe from " .. (f.title or f.url):sub(1, 30) .. "?") then return end
         app.input.clearState()
         feeds.unsubscribe(app.store:feedIndex(), f.id)
         app.store:deleteFeedData(f.id)

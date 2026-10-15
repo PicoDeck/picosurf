@@ -529,7 +529,7 @@ function App:showFeed(feed, opts)
     local lines = feeds.lines(feed, self.store:feedData(feed.id))
     local L = layout.build(lines, theme.cols(self.theme))
     local page = {
-        url = feed.url, want = "feed", mode = "feed", title = feed.title, lines = lines, L = L,
+        url = feed.url, want = "feed", mode = "feed", title = feed.title or feed.url, lines = lines, L = L,
         isFeedList = true, feedId = feed.id,
     }
     page.ps = pagestate.new(L, theme.rows(self.theme))
