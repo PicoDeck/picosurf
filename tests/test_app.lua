@@ -259,6 +259,72 @@ return {
         T.eq(app.page.ps.top, 22)
         T.ok(F.screenText():find("% R", 1, true))
     end,
+    cancelled_back_keeps_the_entry = function()
+        local app, F = boot()
+        go(app, F, "a.test/")
+        F.press("tab"); F.press("enter"); steps(app)
+        T.eq(app.page.url, "https://b.test/")
+        app.cache = {}
+        F.holding = true
+        F.press("backspace"); steps(app, 1)
+        T.eq(app.screenName, "loading")
+        F.press("esc"); steps(app, 1)
+        T.eq(#app.back, 1)
+        F.holding = false; steps(app)
+        F.press("backspace"); steps(app)
+        T.eq(app.page.url, "https://a.test/")
+        T.eq(#app.back, 0, "a successful uncached Back pops exactly one")
+    end,
+    failed_back_keeps_the_entry = function()
+        local app, F = boot()
+        go(app, F, "a.test/")
+        F.press("tab"); F.press("enter"); steps(app)
+        app.cache = {}
+        F.responder = fakepc.proxy({}, "tok")
+        F.press("backspace"); steps(app)
+        T.eq(app.screenName, "message")
+        T.eq(#app.back, 1)
+    end,
+    back_does_not_rerecord_history = function()
+        local app, F = boot()
+        go(app, F, "a.test/")
+        F.press("tab"); F.press("enter"); steps(app)
+        F.press("backspace"); steps(app)
+        T.eq(app.page.url, "https://a.test/")
+        T.eq(app.store:history()[1].url, "https://b.test/")
+        T.eq(#app.store:history(), 2)
+    end,
+    a_toast_is_redrawn_until_it_expires = function()
+        local app, F = boot()
+        app:toast("hi"); steps(app, 1)
+        local n = F.frames
+        F.pc.sys.sleep(3100); steps(app, 1)
+        T.ok(F.frames > n, "flush after expiry")
+        n = F.frames
+        F.pc.sys.sleep(500); steps(app, 3)
+        T.eq(F.frames, n, "idle again")
+    end,
+    leaving_loading_cancels_the_load = function()
+        local app, F = boot()
+        F.holding = true
+        go(app, F, "b.test/")
+        T.eq(app.screenName, "loading")
+        F.menu["Settings"]()
+        F.holding = false
+        steps(app)
+        T.eq(app.screenName, "settings")
+        T.ok(F.hasLog("picosurf: cancelled https://b.test/"))
+        T.eq(app.page, nil)
+    end,
+    esc_while_waiting_for_wifi_goes_home = function()
+        local app, F = boot()
+        go(app, F, "a.test/")
+        F.netStatus = 0
+        go(app, F, "b.test/")
+        T.ok(F.screenText():find("Connecting to WiFi...", 1, true))
+        F.press("esc"); steps(app, 1)
+        T.eq(app.screenName, "home")
+    end,
     warns_about_truncated_pages_and_shows_plain_text = function()
         local app, F = boot()
         go(app, F, "cut.test/")

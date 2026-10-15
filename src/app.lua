@@ -53,12 +53,31 @@ function App:log(...)
     self.sys.log("picosurf: " .. table.concat(parts, " "))
 end
 
+-- Toasts are drawn by a flush and last TOAST_MS on the device; queued ones
+-- show one after another. step keeps flushing until the last has expired.
+App.TOAST_MS = 3000
+
 function App:toast(text, style)
     self.ui.toast(text, style or self.ui.TOAST_INFO)
     self.dirty = true
+    local now = self.sys.getTimeMs()
+    local base = self.toastUntil
+    if not base or now - base > 0 then base = now end
+    self.toastUntil = base + App.TOAST_MS
+    self.nextToastDraw = self.nextToastDraw or now
+end
+
+-- Cancels the active load: its handle, its state and its late response.
+function App:cancelLoad()
+    local L = self.loading
+    if not L then return end
+    self.loading = nil
+    if L.handle then L.handle.cancel() end
+    self:log("cancelled", L.url)
 end
 
 function App:show(name, args)
+    self:cancelLoad()
     self.screenName = name
     self.screen = self.screens[name]
     self.dirty = true
@@ -93,6 +112,14 @@ function App:step()
     end
     self:pump()
     if self.screen.update then self.screen.update(self) end
+    if self.toastUntil then
+        local now = self.sys.getTimeMs()
+        if now - self.nextToastDraw >= 0 then
+            self.dirty = true
+            self.nextToastDraw = now + 250
+            if now - self.toastUntil >= 0 then self.toastUntil, self.nextToastDraw = nil, nil end
+        end
+    end
     if self.dirty then
         self.dirty = false
         self.disp.clear(self.theme.bg)
@@ -211,10 +238,11 @@ function App:showResult(target, mode, r, opts)
         local finalUrl = r.finalUrl or target
         local page, err = self:buildPage(finalUrl, mode, r, opts.restore)
         if not page then return self:fail(err) end
+        if opts.back then table.remove(self.back) end
         if opts.push ~= false and self.page then self:pushBack() end
         self.page = page
         self:cachePut(finalUrl, mode, r)
-        self.store:addHistory(finalUrl, page.title)
+        if not opts.back then self.store:addHistory(finalUrl, page.title) end
         self:log("loaded", finalUrl, "mode=" .. page.mode, "links=" .. #page.L.links, "rows=" .. page.L.count)
         if r.truncated then self:toast("Page truncated by the proxy", self.ui.TOAST_WARNING) end
         return self:show("page")
@@ -226,6 +254,7 @@ function App:showResult(target, mode, r, opts)
             self:log("error", "-", "image decode failed " .. where)
             return self:fail("Could not decode the image: " .. where)
         end
+        if opts.back then table.remove(self.back) end
         return self:show("image", { url = where, image = img })
     end
     self:log("error", r.status or "-", r.message)
@@ -275,9 +304,9 @@ function App:pushBack()
 end
 
 function App:goBack()
-    local e = table.remove(self.back)
+    local e = self.back[#self.back]
     if not e then return self:goHome() end
-    self:open(e.url, { mode = e.want, push = false, restore = { top = e.top, sel = e.sel } })
+    self:open(e.url, { mode = e.want, push = false, back = true, restore = { top = e.top, sel = e.sel } })
 end
 
 function App:goHome()

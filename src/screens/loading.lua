@@ -84,12 +84,11 @@ end
 function S.key(app, action)
     if action ~= "esc" and action ~= "backspace" then return end
     local L = app.loading
-    app.loading = nil
-    if L then
-        if L.handle then L.handle.cancel() end
-        app:log("cancelled", L.url)
-        L.onCancel()
-    end
+    if not L then return end
+    local waitingWifi = L.state == "wifi"
+    app:cancelLoad()
+    if waitingWifi then return app:goHome() end -- spec 6.9
+    L.onCancel()
 end
 
 return S
