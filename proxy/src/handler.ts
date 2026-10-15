@@ -5,7 +5,7 @@ import { foldAscii } from "./ascii";
 import { decodeText, imageTypeFromMime, kindFromMime, mimeOf, sniffImageType, sniffKind } from "./content";
 import { ProxyError, textResponse } from "./errors";
 import { feedToGemtext, parseFeed } from "./feed";
-import { MAX_PIXELS, type Resizer } from "./img";
+import type { Resizer } from "./img";
 import { imageSize } from "./imgsize";
 import { discoverFeed, renderPage } from "./page";
 import { type FetchFn, type SafeFetchOptions, type Upstream, safeFetch } from "./safefetch";
@@ -131,9 +131,9 @@ async function imageResponse(bytes: Uint8Array, mime: string, resizer: Resizer, 
   const type = sniffImageType(bytes) ?? imageTypeFromMime(mime);
   if (!type) throw new ProxyError(415, `Unsupported image: ${mime || "unknown type"}`);
   const size = imageSize(bytes, type);
-  // A zero dimension is unreadable: 0 pixels would slip past the MAX_PIXELS guard.
+  // A zero dimension is unreadable: 0 pixels would slip past the pixel cap.
   if (!size || size.width <= 0 || size.height <= 0) throw new ProxyError(415, "Could not read the image size");
-  if (size.width * size.height > MAX_PIXELS) throw new ProxyError(413, `Image too large (${size.width}x${size.height})`);
+  if (size.width * size.height > resizer.maxPixels) throw new ProxyError(413, `Image too large (${size.width}x${size.height})`);
   let jpeg: Uint8Array;
   try {
     jpeg = await resizer.resize(bytes, type);

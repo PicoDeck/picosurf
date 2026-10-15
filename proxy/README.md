@@ -17,6 +17,12 @@ Authorization: Bearer <token>
 
 Response headers: `X-Final-Url`, `X-Title`, `X-Mode`, `X-Feed-Url`, `X-Truncated`. Errors are one line of plain text with a status code: 400, 401, 403, 404 (unknown path), 405 (anything but GET), 413, 415, 500, 502 or 504. A 502 caused by the upstream site also carries `X-Upstream-Status`.
 
+## Image limits
+
+The two platforms resize images with different code, so their limits differ:
+- **Workers** refuses images over `WASM_MAX_PIXELS` (2,000,000 pixels) with 413. The WASM codecs need about 30 MiB per megapixel, and a Worker has 128 MB.
+- **Docker/Node** accepts images up to 16,000,000 pixels.
+
 ## Deploy on Cloudflare Workers
 
 1. `cd proxy && npm ci`

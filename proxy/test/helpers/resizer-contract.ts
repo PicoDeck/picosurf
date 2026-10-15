@@ -26,6 +26,11 @@ export function resizerContract(name: string, make: () => Promise<Resizer>): voi
       resizer = await make();
     });
 
+    it("declares a positive pixel cap", () => {
+      expect(typeof resizer.maxPixels).toBe("number");
+      expect(resizer.maxPixels).toBeGreaterThan(0);
+    });
+
     it.each(CASES)("%s (%s) → baseline JPEG %dx%d", async (file, type, width, height) => {
       const out = await resizer.resize(imageFixture(file), type);
       const info = jpegInfo(out);

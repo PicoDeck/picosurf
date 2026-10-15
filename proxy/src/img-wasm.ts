@@ -31,6 +31,17 @@ class ImageDataShim {
 }
 (globalThis as { ImageData?: unknown }).ImageData ??= ImageDataShim;
 
+/**
+ * The Workers pixel cap. A Worker has 128 MB, and the WASM codecs use about
+ * 30 MiB per megapixel. Peak RSS growth of one resize() of a noise JPEG in a
+ * fresh Node process (node --expose-gc, 3 runs, 2026-10-15), module
+ * instantiation included: 2 MP 64-67 MiB, 3 MP 95-99 MiB, 4 MP 122-131 MiB.
+ * With the modules already instantiated: 2 MP 48, 3 MP 78, 4 MP 110 MiB.
+ * The cap is the largest of 4, 3 or 2 MP whose growth in a fresh process stays
+ * under 90 MiB.
+ */
+export const WASM_MAX_PIXELS = 2_000_000;
+
 export interface WasmModules {
   jpegDec: WebAssembly.Module;
   jpegEnc: WebAssembly.Module;
@@ -55,6 +66,7 @@ export function createWasmResizer(mods: WasmModules): Resizer {
     ]));
 
   return {
+    maxPixels: WASM_MAX_PIXELS,
     async resize(bytes, type) {
       await init();
       const source = await decode(bytes, type);

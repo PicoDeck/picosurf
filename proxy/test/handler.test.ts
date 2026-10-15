@@ -9,9 +9,9 @@ const TOKEN = "secret-token";
 const env = { PROXY_TOKEN: TOKEN };
 const JPEG_OUT = Uint8Array.of(0xff, 0xd8, 0xff, 0xd9);
 
-function deps(routes: Parameters<typeof fakeFetch>[0] = {}) {
+function deps(routes: Parameters<typeof fakeFetch>[0] = {}, maxPixels = 16_000_000) {
   const fetch = fakeFetch(routes);
-  const resizer = { resize: vi.fn<Resizer["resize"]>(async () => JPEG_OUT) };
+  const resizer = { maxPixels, resize: vi.fn<Resizer["resize"]>(async () => JPEG_OUT) };
   return { fetch, resizer, deps: { fetch, resizer } satisfies Deps };
 }
 
@@ -160,6 +160,17 @@ describe("images", () => {
     const res = await get("https://example.com/huge.png", d.deps);
     expect(res.status).toBe(413);
     expect(await res.text()).toBe("Image too large (5000x4000)\n");
+    expect(d.resizer.resize).not.toHaveBeenCalled();
+  });
+  it("refuses images over the resizer's own pixel cap", async () => {
+    const png = new Uint8Array(33);
+    png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+    new DataView(png.buffer).setUint32(16, 2000);
+    new DataView(png.buffer).setUint32(20, 1000);
+    const d = deps({ "https://example.com/big.png": new Response(png, { headers: { "Content-Type": "image/png" } }) }, 1_000_000);
+    const res = await get("https://example.com/big.png", d.deps);
+    expect(res.status).toBe(413);
+    expect(await res.text()).toBe("Image too large (2000x1000)\n");
     expect(d.resizer.resize).not.toHaveBeenCalled();
   });
   it("415s an image with a zero dimension without decoding it", async () => {
