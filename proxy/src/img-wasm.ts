@@ -90,6 +90,13 @@ async function decode(bytes: Uint8Array, type: ImageType): Promise<ImageData> {
       return decodeWebp(buffer);
     case "gif": {
       const reader = new GifReader(bytes);
+      // omggif allocates for the frame descriptor's size, which the handler's
+      // check of the logical screen size never saw.
+      const frame = reader.frameInfo(0);
+      if (frame.x + frame.width > reader.width || frame.y + frame.height > reader.height) {
+        throw new Error("GIF frame lies outside the logical screen");
+      }
+      if (reader.width * reader.height > WASM_MAX_PIXELS) throw new Error("GIF is too large");
       const data = new Uint8ClampedArray(reader.width * reader.height * 4);
       reader.decodeAndBlitFrameRGBA(0, data);
       return new ImageData(data, reader.width, reader.height);
