@@ -15,7 +15,7 @@ GET /v1/get?url=<absolute URL>[&as=reader|full|feed]
 Authorization: Bearer <token>
 ```
 
-Response headers: `X-Final-Url`, `X-Title`, `X-Mode`, `X-Feed-Url`, `X-Truncated`. Errors are one line of plain text with a status code: 400, 401, 403, 413, 415, 500, 502 or 504.
+Response headers: `X-Final-Url`, `X-Title`, `X-Mode`, `X-Feed-Url`, `X-Truncated`. Errors are one line of plain text with a status code: 400, 401, 403, 404 (unknown path), 405 (anything but GET), 413, 415, 500, 502 or 504. A 502 caused by the upstream site also carries `X-Upstream-Status`.
 
 ## Deploy on Cloudflare Workers
 
@@ -41,7 +41,20 @@ picosurf.example.com {
 }
 ```
 
-The device trusts Let's Encrypt, Google Trust Services, SSL.com, DigiCert and Sectigo roots.
+The device verifies TLS against a bundle of 11 roots:
+- ISRG Root X1
+- ISRG Root X2
+- GTS Root R1
+- GTS Root R4
+- SSL.com TLS ECC Root CA 2022
+- SSL.com TLS RSA Root CA 2022
+- DigiCert Global Root G2
+- Sectigo Public Server Authentication Root E46
+- Sectigo Public Server Authentication Root R46
+- USERTrust ECC Certification Authority
+- USERTrust RSA Certification Authority
+
+A certificate from Let's Encrypt, Google Trust Services (Cloudflare) or SSL.com works. For any other CA, check that its chain ends at one of these roots.
 
 ## Configuration
 
@@ -52,6 +65,8 @@ The device trusts Let's Encrypt, Google Trust Services, SSL.com, DigiCert and Se
 | `PORT` | no | Node/Docker only; default 8080. |
 
 ## Development
+
+The npm commands need Node 22 or newer. `npm run dev` reads `PROXY_TOKEN` from a gitignored `proxy/.dev.vars` file, for example `PROXY_TOKEN=dev-token`.
 
 - `npm test`: unit tests
 - `npm run typecheck`
