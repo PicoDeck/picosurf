@@ -11,8 +11,6 @@ Callbacks fire from the main loop — they are pumped by the firmware’s debug 
 
 ### `picocalc.tcp.new(host [, port] [, use_ssl])`
 
-Section titled “picocalc.tcp.new(host [, port] [, use_ssl])”
-
 Open a new TCP connection to a host.
 
 * Parameters:
@@ -170,8 +168,6 @@ Get pending connection events.
 
 ### `conn:waitConnected([timeout_seconds])`
 
-Section titled “conn:waitConnected([timeout_seconds])”
-
 Block until the connection is established.
 
 * Parameters:
@@ -183,8 +179,6 @@ if conn:waitConnected(5) then    conn:write("hello")end
 ```
 
 ### `conn:waitData([timeout_seconds])`
-
-Section titled “conn:waitData([timeout_seconds])”
 
 Block until data is available to read.
 

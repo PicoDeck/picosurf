@@ -58,12 +58,26 @@ export function discoverFeed(html: string, finalUrl: string): string | null {
 /**
  * Readability's conditional cleaning deletes short wrapper divs that hold a
  * heading plus a link (Wikipedia's `div.mw-heading` with its "[edit]" link),
- * taking the section heading with them. Replace such wrappers by the heading.
+ * taking the section heading with them. Replace such wrappers by the heading,
+ * but only when everything else in the wrapper is chrome (edit/anchor affordances).
  */
+const CHROME_TAGS = new Set(["A", "SPAN", "BUTTON", "SUP", "SVG"]);
+const CHROME_TEXT = /^(\[?(edit|edit source|#|¶|§)\]?|section titled\b.*)$/i; // last: Starlight anchor-link text
+
+function isChrome(n: Node): boolean {
+  if (n.nodeType === 3) return collapse(n.textContent ?? "") === "";
+  if (n.nodeType !== 1) return n.nodeType === 8; // comments are harmless
+  const el = n as Element;
+  if (!CHROME_TAGS.has(el.tagName.toUpperCase())) return false;
+  const text = collapse(el.textContent ?? "");
+  return text === "" || CHROME_TEXT.test(text.replace(/\s+/g, " "));
+}
+
 function hoistHeadings(doc: Document): void {
   for (const h of Array.from(doc.querySelectorAll("h1, h2, h3, h4, h5, h6"))) {
     const wrap = h.parentElement;
-    if (wrap?.tagName === "DIV" && wrap.parentElement && collapse(wrap.textContent ?? "").length < 80) wrap.replaceWith(h);
+    if (wrap?.tagName !== "DIV" || !wrap.parentElement) continue;
+    if (Array.from(wrap.childNodes).every((n) => n === h || isChrome(n))) wrap.replaceWith(h);
   }
 }
 

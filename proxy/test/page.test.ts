@@ -54,6 +54,33 @@ describe("renderPage", () => {
     expect(page.gemtext).toContain("\n## Section One\n");
   });
 
+  describe("heading hoisting keeps wrapper content", () => {
+    const lorem = articleHtml().match(/<p>(.*?)<\/p>/)![1];
+    const wrap = (inner: string) =>
+      `<html><head><title>T</title></head><body><article><h1>T</h1><p>${lorem}</p>${inner}<p>${lorem}</p><p>${lorem}</p></article></body></html>`;
+
+    it("keeps the summary in a card div", () => {
+      const page = renderPage(wrap("<div><h3>Card title</h3><p>Short summary of the thing.</p></div>"), URL_, "reader");
+      expect(page.mode).toBe("reader");
+      expect(page.gemtext).toContain("Card title");
+      expect(page.gemtext).toContain("Short summary of the thing.");
+    });
+
+    it("keeps the summaries of two cards", () => {
+      const card = (n: number) => `<div><h3>Card ${n}</h3><p>Summary number ${n} here.</p></div>`;
+      const page = renderPage(wrap(card(1) + card(2)), URL_, "reader");
+      expect(page.mode).toBe("reader");
+      expect(page.gemtext).toContain("Summary number 1 here.");
+      expect(page.gemtext).toContain("Summary number 2 here.");
+    });
+
+    it("keeps the text of a callout with a bare text node", () => {
+      const page = renderPage(wrap('<div class="note"><h4>Warning</h4>Do not do X.</div>'), URL_, "reader");
+      expect(page.mode).toBe("reader");
+      expect(page.gemtext).toContain("Do not do X.");
+    });
+  });
+
   it.each([["Forbidden"], [""]])("never throws on junk HTML (%j)", (junk) => {
     const page = renderPage(junk, URL_, "reader");
     expect(page.mode).toBe("full");
