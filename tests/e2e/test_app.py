@@ -90,7 +90,7 @@ def test_open_follow_back_and_bookmark(picosurf):
     proxy.add("https://b.test/", "# B\n", title="B")
     wait(sim, r"picosurf: screen home", start_app(sim))
     wait(sim, r"picosurf: loaded https://a\.test/ mode=reader links=2", open_first_history(sim))
-    wait(sim, r"picosurf: loaded https://b\.test/", act(sim, "tab", "enter"))
+    wait(sim, r"picosurf: loaded https://b\.test/", act(sim, "enter"))  # [1] starts selected
     wait(sim, r"picosurf: loaded https://a\.test/", act(sim, "backspace"))
     assert sum(1 for path, q in proxy.requests if q.get("url") == "https://a.test/") == 1, "back used the cache"
     wait(sim, r"picosurf: bookmark add https://a\.test/", act(sim, "f3"))
@@ -106,7 +106,7 @@ def test_image_opens_full_screen(picosurf):
     proxy.add("https://a.test/cat.jpg", jpeg_bytes(200, 120), ctype="image/jpeg")
     wait(sim, r"picosurf: screen home", start_app(sim))
     wait(sim, r"picosurf: loaded https://a\.test/", open_first_history(sim))
-    wait(sim, r"picosurf: image w=200 h=120", act(sim, "tab", "tab", "enter"))
+    wait(sim, r"picosurf: image w=200 h=120", act(sim, "tab", "enter"))
     wait(sim, r"picosurf: screen page", act(sim, "esc"))
     no_lua_errors(sim)
 
@@ -125,7 +125,7 @@ def test_subscribe_and_read(picosurf):
     # Home keeps the tab it was left on (History, where the page was opened from).
     wait(sim, r"picosurf: tab Feeds", act(sim, "left", "left"))
     wait(sim, r"picosurf: feed 1 unread=2", act(sim, "enter"))
-    wait(sim, r"picosurf: feed 1 unread=1", act(sim, "tab", "enter"))
+    wait(sim, r"picosurf: feed 1 unread=1", act(sim, "enter"))  # the first item starts selected
     index = json.loads((data / "feeds" / "index.json").read_text())
     assert index["feeds"][0]["unread"] == 1
     no_lua_errors(sim)

@@ -3,9 +3,14 @@
 local M = {}
 M.__index = M
 
--- L: a layout (layout.build); visible: how many rows fit on screen.
+local keepSelectionVisible
+
+-- L: a layout (layout.build); visible: how many rows fit on screen. The
+-- topmost visible link starts selected, so Enter opens it and Tab moves on.
 function M.new(L, visible)
-    return setmetatable({ L = L, visible = visible, top = 1, sel = nil, digits = "" }, M)
+    local ps = setmetatable({ L = L, visible = visible, top = 1, sel = nil, digits = "" }, M)
+    keepSelectionVisible(ps)
+    return ps
 end
 
 function M:maxTop()
@@ -29,17 +34,18 @@ function M:visibleLinks()
     return out
 end
 
--- Keeps the selection on screen: a link scrolled off the top gives way to the
--- first visible link, one scrolled off the bottom to the last.
-local function keepSelectionVisible(self)
-    if self.sel and not isVisible(self, self.sel) then
-        local vis = self:visibleLinks()
-        if #vis == 0 then
-            self.sel = nil
-        elseif self.L.links[self.sel].last < self.top then
-            self.sel = vis[1]
-        else
-            self.sel = vis[#vis]
+-- Keeps a link selected while one is on screen: when nothing is selected, or
+-- the selected link has scrolled off (either way), the topmost visible link is
+-- chosen, preferring one that starts on screen over the tail of a wrapped
+-- link above it. With no link on screen, nothing is selected.
+function keepSelectionVisible(self)
+    if self.sel and isVisible(self, self.sel) then return end
+    local vis = self:visibleLinks()
+    self.sel = vis[1]
+    for _, k in ipairs(vis) do
+        if self.L.links[k].first >= self.top then
+            self.sel = k
+            break
         end
     end
 end

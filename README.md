@@ -17,7 +17,7 @@ Read the web and RSS/Atom feeds on a [PicoDeck](https://picodeck.net) PicoCalc. 
 | Up / Down | scroll a row | move in the list |
 | Left / Right | page up / down | switch tab |
 | Space | page down | |
-| Tab / Shift+Tab | select the next / previous link on screen | |
+| Tab / Shift+Tab | select the next / previous link on screen (the topmost link on screen is selected as you scroll) | |
 | Enter | open the selected link | open |
 | digits, then Enter | open link `[n]` (Backspace deletes a digit, Esc clears the number) | |
 | Backspace / Esc | back (on the first page: Home) | Esc: quit, or stop a refresh |

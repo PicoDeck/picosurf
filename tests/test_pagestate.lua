@@ -30,17 +30,46 @@ return {
         local short = pagestate.new(layout.build(g.parse("one\ntwo"), 40), 10)
         T.eq(short:percent(), 100)
     end,
+    opening_selects_the_topmost_visible_link = function()
+        T.eq(page().sel, 1, "[1] on row 2 is the first link on screen")
+        local none = pagestate.new(layout.build(g.parse("one\ntwo"), 40), 10)
+        T.eq(none.sel, nil, "no links, no selection")
+    end,
     next_link_selects_among_visible_links_and_wraps = function()
         local ps = page()
-        T.eq(ps:nextLink(1), true); T.eq(ps.sel, 1)
-        ps:nextLink(1); T.eq(ps.sel, 1, "only [1] is visible on rows 1-10")
+        T.eq(ps:nextLink(1), true); T.eq(ps.sel, 1, "only [1] is visible on rows 1-10")
         ps:scroll(5) -- rows 6-15
-        T.eq(ps.sel, 2, "[1] scrolled off the top, so the first visible link is chosen")
-        ps:scroll(-5) -- rows 1-10
-        T.eq(ps.sel, 1, "[2] scrolled off the bottom, so the last visible link is chosen")
+        T.eq(ps.sel, 2, "[1] scrolled off the top, so the topmost visible link is chosen")
+        ps:scroll(2) -- rows 8-17: [2] is still on screen
+        T.eq(ps.sel, 2)
+        ps:scroll(-7) -- rows 1-10
+        T.eq(ps.sel, 1, "[2] scrolled off the bottom, so the topmost visible link is chosen")
         ps:scroll(2) -- rows 3-12: no links
         T.eq(ps.sel, nil)
         T.eq(ps:nextLink(1), false)
+        ps:scroll(4) -- rows 7-16: [2] comes into view
+        T.eq(ps.sel, 2, "a link scrolled into view is selected")
+    end,
+    scrolling_up_past_the_selection_picks_the_topmost_link = function()
+        local parts = {}
+        for i = 1, 30 do parts[i] = "line " .. i end
+        parts[2] = "=> https://a.test/1 [1] one"
+        parts[8] = "=> https://a.test/2 [2] two"
+        parts[15] = "=> https://a.test/3 [3] three"
+        local ps = pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), 40), 10)
+        ps:scroll(7) -- rows 8-17: [2] and [3]
+        T.eq(ps.sel, 2)
+        ps:nextLink(1); T.eq(ps.sel, 3, "Tab moves on from the selected link")
+        ps:scroll(-7) -- rows 1-10: [3] is gone; [1] and [2] are on screen
+        T.eq(ps.sel, 1, "the topmost, not the nearest")
+    end,
+    a_link_that_starts_on_screen_beats_a_tail = function()
+        local long = "=> https://a.test/1 " .. string.rep("word ", 20) -- wraps to 3 rows at 40
+        local L = layout.build(g.parse(long .. "\nx\n=> https://a.test/2 two\n" .. string.rep("y\n", 20)), 40)
+        T.eq(L.links[1].first, 1); T.eq(L.links[1].last, 3)
+        local ps = pagestate.new(L, 10)
+        ps:restore(3, nil) -- row 3 is [1]'s last row
+        T.eq(ps.sel, 2, "[2] starts on screen; only [1]'s tail shows")
     end,
     previous_link_starts_from_the_last_visible = function()
         local ps = page()
@@ -71,8 +100,10 @@ return {
         local ps = page()
         ps:restore(500, 1)
         T.eq(ps.top, 21)
-        T.eq(ps.sel, 3, "[1] is off screen, so the nearest visible link is chosen")
+        T.eq(ps.sel, 3, "[1] is off screen, so the topmost visible link is chosen")
         ps:restore(1, nil)
+        T.eq(ps.sel, 1, "no saved selection: the topmost visible link")
+        ps:restore(3, 1) -- rows 3-12: no links
         T.eq(ps.sel, nil)
     end,
     scrolls_to_the_end_of_a_very_long_page = function() -- Review Focus 1

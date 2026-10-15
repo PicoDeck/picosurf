@@ -332,8 +332,8 @@ as below.
 |---|---|
 | Up / Down | scroll one row |
 | Left / Right, Space | page up / page down |
-| Tab / Shift+Tab | select the next / previous link among visible rows (the first Tab selects the first visible link); a wrapped link highlights all its rows; if scrolling moves the selection off screen, the nearest visible link is selected |
-| Enter | open the selected link (does nothing without a selection) |
+| Tab / Shift+Tab | select the next / previous link among visible rows; a link is always selected while one is on screen: a page opens with its topmost visible link selected, and when scrolling moves the selection off screen (either way) the topmost visible link is selected, preferring one that starts on screen over the tail of a wrapped link; a wrapped link highlights all its rows |
+| Enter | open the selected link (does nothing when no link is on screen) |
 | 0-9 | build a link number, shown in the footer (`Link: 12_`); Enter opens `[n]`; Backspace deletes a digit; Esc clears the number |
 | Backspace / Esc (no number being typed) | Back; on the first page in the stack, go Home; on Home, Esc exits |
 | F1 | Go: `ui.textInput("Go to:")`; `https://` added when there's no scheme; input with spaces → toast `Not a URL (search isn't supported yet)` |
