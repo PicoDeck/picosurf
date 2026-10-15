@@ -8,6 +8,7 @@ local pagestate = require("src.pagestate")
 local store = require("src.store")
 local keys = require("src.keys")
 local theme = require("src.theme")
+local feeds = require("src.feeds")
 
 local App = {}
 App.__index = App
@@ -83,12 +84,6 @@ function App:show(name, args)
     self.dirty = true
     self:log("screen", name)
     if self.screen.enter then self.screen.enter(self, args or {}) end
-end
-
-function App:addMenuItems()
-    self.sys.addMenuItem("Reload", function() self:reload() end)
-    self.sys.addMenuItem("Edit URL", function() self:editUrl() end)
-    self.sys.addMenuItem("Settings", function() self:show("settings", { from = self.screenName }) end)
 end
 
 function App:start()
@@ -214,24 +209,6 @@ function App:cachePut(u, mode, result)
     while #self.cache > App.MAX_CACHE do table.remove(self.cache, 1) end
 end
 
--- Opens a URL in the page view. opts: mode ("reader"|"full"|"feed"),
--- push (false replaces the current page instead of stacking it), restore ({top, sel}).
-function App:open(target, opts)
-    opts = opts or {}
-    local scheme = url.scheme(target)
-    if scheme ~= "http" and scheme ~= "https" then
-        return self:toast((scheme or "That") .. ":// links aren't supported yet", self.ui.TOAST_WARNING)
-    end
-    local mode = opts.mode or "reader"
-    local cached = self:cacheGet(target, mode)
-    if cached then return self:showResult(target, mode, cached, opts) end
-    self:show("loading", {
-        url = target, as = mode,
-        onResult = function(r) self:showResult(target, mode, r, opts) end,
-        onCancel = function() self:show(self.page and "page" or "home") end,
-    })
-end
-
 function App:showResult(target, mode, r, opts)
     opts = opts or {}
     if r.kind == "gemini" or r.kind == "text" then
@@ -297,26 +274,9 @@ function App:fail(message, retry)
     self:show("message", { title = "Error", text = message or "Something went wrong", retry = retry })
 end
 
-function App:pushBack()
-    local p = self.page
-    self.back[#self.back + 1] = { url = p.url, want = p.want, top = p.ps.top, sel = p.ps.sel }
-    while #self.back > App.MAX_BACK do table.remove(self.back, 1) end
-end
-
-function App:goBack()
-    local e = self.back[#self.back]
-    if not e then return self:goHome() end
-    self:open(e.url, { mode = e.want, push = false, back = true, restore = { top = e.top, sel = e.sel } })
-end
-
 function App:goHome()
     self.page, self.back = nil, {}
     self:show("home")
-end
-
-function App:followLink(link)
-    self:log("follow", link.url)
-    self:open(link.url)
 end
 
 -- F1: ask for a URL. ui.textInput draws over the screen already shown. The log
@@ -347,18 +307,241 @@ function App:toggleMode()
     self:open(p.url, { mode = p.mode == "full" and "reader" or "full", push = false })
 end
 
-function App:reload()
-    local p = self.page
-    if not p or self.screenName ~= "page" then return self:toast("Nothing to reload") end
-    self:cacheDrop(p.url, p.want)
-    self:open(p.url, { mode = p.want, push = false, restore = { top = p.ps.top, sel = p.ps.sel } })
-end
-
 function App:editUrl()
     local p = self.page
     if not p or self.screenName ~= "page" then return self:promptGo() end
     if #p.url > 127 then return self:toast("URL too long to edit", self.ui.TOAST_WARNING) end
     self:promptGo(p.url)
+end
+
+function App:addMenuItems()
+    self.sys.addMenuItem("Reload", function() self:reload() end)
+    self.sys.addMenuItem("Edit URL", function() self:editUrl() end)
+    self.sys.addMenuItem("Mark all read", function() self:markAllRead() end)
+    self.sys.addMenuItem("Settings", function() self:show("settings", { from = self.screenName }) end)
+end
+
+-- Opens a URL in the page view. opts: mode ("reader"|"full"|"feed"),
+-- push (false replaces the current page instead of stacking it), restore ({top, sel}),
+-- back (set by goBack: the Back entry is removed only when the load succeeds).
+function App:open(target, opts)
+    opts = opts or {}
+    local scheme = url.scheme(target)
+    if scheme ~= "http" and scheme ~= "https" then
+        return self:toast((scheme or "That") .. ":// links aren't supported yet", self.ui.TOAST_WARNING)
+    end
+    self:cancelRefresh() -- frees the connections a refresh holds
+    local mode = opts.mode or "reader"
+    local cached = self:cacheGet(target, mode)
+    if cached then return self:showResult(target, mode, cached, opts) end
+    self:show("loading", {
+        url = target, as = mode,
+        onResult = function(r) self:showResult(target, mode, r, opts) end,
+        onCancel = function() self:show(self.page and "page" or "home") end,
+    })
+end
+
+function App:pushBack()
+    local p = self.page
+    self.back[#self.back + 1] = {
+        url = p.url, want = p.want, top = p.ps.top, sel = p.ps.sel, feedId = p.isFeedList and p.feedId or nil,
+    }
+    while #self.back > App.MAX_BACK do table.remove(self.back, 1) end
+end
+
+function App:goBack()
+    local e = self.back[#self.back]
+    if not e then return self:goHome() end
+    local restore = { top = e.top, sel = e.sel }
+    if e.feedId then
+        -- A feed list needs no network and cannot fail, so its entry goes now.
+        table.remove(self.back)
+        local feed = self:feedById(e.feedId)
+        if feed then return self:showFeed(feed, { push = false, restore = restore }) end
+        return self:goBack() -- unsubscribed meanwhile
+    end
+    self:open(e.url, { mode = e.want, push = false, restore = restore, back = true })
+end
+
+function App:followLink(link)
+    local p = self.page
+    if p and p.isFeedList then
+        local feed = self:feedById(p.feedId)
+        local data = self.store:feedData(p.feedId)
+        if feed and feeds.markRead(data, link.url) then
+            self.store:saveFeedData(feed.id, data)
+            feeds.summarize(feed, data)
+            self.store:saveFeedIndex()
+            self:log("feed", feed.id, "unread=" .. feed.unread)
+        end
+    end
+    self:log("follow", link.url)
+    self:open(link.url)
+end
+
+function App:reload()
+    local p = self.page
+    if not p or self.screenName ~= "page" then return self:toast("Nothing to reload") end
+    if p.isFeedList then
+        local feed = self:feedById(p.feedId)
+        if feed then
+            feed.fetched_at = 0
+            return self:openFeed(feed, { push = false, restore = { top = p.ps.top, sel = p.ps.sel } })
+        end
+        return
+    end
+    self:cacheDrop(p.url, p.want)
+    self:open(p.url, { mode = p.want, push = false, restore = { top = p.ps.top, sel = p.ps.sel } })
+end
+
+function App:now()
+    local c = self.sys.getClock()
+    return c.synced and c.epoch or 0
+end
+
+function App:feedById(id)
+    for _, f in ipairs(self.store:feedIndex().feeds) do
+        if f.id == id then return f end
+    end
+    return nil
+end
+
+-- Stores a fetched feed list (r: a gemini result from as=feed).
+function App:applyFeed(feed, r)
+    local items = gemtext.feedItems(gemtext.parse(r.body))
+    local data = feeds.merge(self.store:feedData(feed.id), items)
+    if r.title and r.title ~= "" then feed.title = r.title end
+    feeds.summarize(feed, data, self:now())
+    self.store:saveFeedData(feed.id, data)
+    self.store:saveFeedIndex()
+    return data
+end
+
+-- F5 on a page: subscribe to its feed (the proxy finds it from a homepage).
+function App:subscribe()
+    local p = self.page
+    if not p then return end
+    if p.isFeedList then return self:toast("Already subscribed") end
+    self:show("loading", {
+        url = p.url, as = "feed",
+        onCancel = function() self:show("page") end,
+        onResult = function(r)
+            self:show("page")
+            if r.kind ~= "gemini" then
+                self:log("error", r.status or "-", r.message)
+                return self:toast(r.message or "Not a feed", self.ui.TOAST_ERROR)
+            end
+            local index = self.store:feedIndex()
+            local feed, isNew = feeds.subscribe(index, r.finalUrl or p.url, (r.title ~= "" and r.title) or nil)
+            if not feed then return self:toast(isNew, self.ui.TOAST_ERROR) end
+            if not isNew then return self:toast("Already subscribed") end
+            self:applyFeed(feed, r)
+            self:log("subscribed", feed.id, feed.url, "unread=" .. feed.unread)
+            self:toast("Subscribed: " .. feed.title, self.ui.TOAST_SUCCESS)
+        end,
+    })
+end
+
+-- Opens a feed's article list, fetching it first when stale.
+function App:openFeed(feed, opts)
+    opts = opts or {}
+    self:cancelRefresh()
+    if not feeds.isStale(feed, self:now()) then return self:showFeed(feed, opts) end
+    self:show("loading", {
+        url = feed.url, as = "feed",
+        onCancel = function() self:show(self.page and "page" or "home") end,
+        onResult = function(r)
+            if r.kind == "gemini" then
+                self:applyFeed(feed, r)
+            else
+                self:log("error", r.status or "-", r.message)
+                self:toast(r.message or "Refresh failed", self.ui.TOAST_ERROR)
+            end
+            self:showFeed(feed, opts)
+        end,
+    })
+end
+
+function App:showFeed(feed, opts)
+    opts = opts or {}
+    local lines = feeds.lines(feed, self.store:feedData(feed.id))
+    local L = layout.build(lines, theme.cols(self.theme))
+    local page = {
+        url = feed.url, want = "feed", mode = "feed", title = feed.title, lines = lines, L = L,
+        isFeedList = true, feedId = feed.id,
+    }
+    page.ps = pagestate.new(L, theme.rows(self.theme))
+    if opts.restore then page.ps:restore(opts.restore.top, opts.restore.sel) end
+    if opts.push ~= false and self.page then self:pushBack() end
+    self.page = page
+    self:log("feed", feed.id, "unread=" .. feed.unread)
+    self:show("page")
+end
+
+-- F5 on the Feeds tab: refresh every feed, two requests at a time.
+function App:refreshAll()
+    if self.refresh then return end
+    local list = feeds.sorted(self.store:feedIndex())
+    if #list == 0 then return self:toast("No feeds to refresh") end
+    self.refresh = { list = list, nextIndex = 1, active = 0, done = 0, ok = 0, failed = 0, handles = {} }
+    self:pumpRefresh()
+end
+
+function App:pumpRefresh()
+    local R = self.refresh
+    if not R then return end
+    while self.refresh == R and R.active < 2 and R.nextIndex <= #R.list do
+        local feed = R.list[R.nextIndex]
+        R.nextIndex = R.nextIndex + 1
+        R.active = R.active + 1
+        local handle = self:request(feed.url, "feed", function(r)
+            if self.refresh ~= R then return end
+            R.active, R.done = R.active - 1, R.done + 1
+            if r.kind == "gemini" then
+                self:applyFeed(feed, r)
+                R.ok = R.ok + 1
+            else
+                R.failed = R.failed + 1
+            end
+            self:pumpRefresh()
+        end)
+        if handle then
+            R.handles[#R.handles + 1] = handle
+        else
+            R.active, R.done, R.failed = R.active - 1, R.done + 1, R.failed + 1
+        end
+    end
+    if self.refresh == R and R.done >= #R.list then
+        self.refresh = nil
+        self:log("refresh", "done", "ok=" .. R.ok, "failed=" .. R.failed)
+        if R.failed == 0 then
+            self:toast("Feeds refreshed", self.ui.TOAST_SUCCESS)
+        else
+            self:toast(R.failed .. " feeds failed to refresh", self.ui.TOAST_WARNING)
+        end
+    end
+    self.dirty = true
+end
+
+function App:cancelRefresh()
+    local R = self.refresh
+    if not R then return end
+    self.refresh = nil
+    for _, h in ipairs(R.handles) do h.cancel() end
+    self:log("refresh", "cancelled")
+end
+
+function App:markAllRead()
+    local p = self.page
+    if not p or not p.isFeedList or self.screenName ~= "page" then return self:toast("Open a feed first") end
+    local feed = self:feedById(p.feedId)
+    if not feed then return end
+    local data = self.store:feedData(feed.id)
+    feeds.markAllRead(data)
+    self.store:saveFeedData(feed.id, data)
+    feeds.summarize(feed, data)
+    self.store:saveFeedIndex()
+    self:showFeed(feed, { push = false, restore = { top = p.ps.top, sel = p.ps.sel } })
 end
 
 return App

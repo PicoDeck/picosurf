@@ -86,6 +86,8 @@ function S.key(app, action, arg)
         return app:toggleBookmark()
     elseif action == "f4" then
         return app:toggleMode()
+    elseif action == "f5" then
+        return app:subscribe()
     end
     app.dirty = true
 end

@@ -1,13 +1,29 @@
--- Home: Bookmarks and History lists (spec 6.2).
+-- Home: Feeds, Bookmarks and History lists (spec 6.2, 6.7).
+local feeds = require("src.feeds")
+
 local S = {}
-local TABS = { "Bookmarks", "History" }
+local TABS = { "Feeds", "Bookmarks", "History" }
 local LIST_TOP, ROW_H = 43, 13
 local VISIBLE = (302 - LIST_TOP) // ROW_H
 
 local function items(app, tab)
-    if TABS[tab] == "Bookmarks" then return app.store:bookmarks() end
+    local name = TABS[tab]
+    if name == "Feeds" then
+        local out = {}
+        for i, f in ipairs(feeds.sorted(app.store:feedIndex())) do
+            out[i] = { title = f.title .. " (" .. f.unread .. ")", feed = f }
+        end
+        return out
+    end
+    if name == "Bookmarks" then return app.store:bookmarks() end
     return app.store:history()
 end
+
+local HINTS = {
+    Feeds = "No feeds yet. F5 on a page subscribes.",
+    Bookmarks = "No bookmarks yet. F3 on a page adds one.",
+    History = "Nothing visited yet. F1 opens a URL.",
+}
 
 function S.enter(app)
     app.home = app.home or { tab = 1, sel = {}, top = {} }
@@ -21,15 +37,37 @@ function S.draw(app)
     local sel, top = h.sel[h.tab] or 1, h.top[h.tab] or 1
     if #list == 0 then
         app.disp.setFont(th.font)
-        local hint = TABS[h.tab] == "Bookmarks" and "No bookmarks yet. F3 on a page adds one."
-            or "Nothing visited yet. F1 opens a URL."
-        app.disp.drawText(th.margin, LIST_TOP + 20, hint, th.dim, false)
+        app.disp.drawText(th.margin, LIST_TOP + 20, HINTS[TABS[h.tab]], th.dim, false)
     end
     for i = top, math.min(#list, top + VISIBLE - 1) do
         local e = list[i]
         app.ui.drawListItem(0, LIST_TOP + (i - top) * ROW_H, 320, e.title or e.url, i == sel, true)
     end
-    app.ui.drawFooter("F1 go  Del remove  Esc quit", "")
+    local R = app.refresh
+    if R then
+        app.ui.drawFooter("Refreshing " .. R.done .. "/" .. #R.list .. "  Esc stop", "")
+    elseif TABS[h.tab] == "Feeds" then
+        app.ui.drawFooter("F5 refresh  Del remove  Esc quit", "")
+    else
+        app.ui.drawFooter("F1 go  Del remove  Esc quit", "")
+    end
+end
+
+local function remove(app, h, entry, sel)
+    local name = TABS[h.tab]
+    if name == "Feeds" then
+        local f = entry.feed
+        if not app.ui.confirm("Unsubscribe from " .. f.title:sub(1, 30) .. "?") then return end
+        app.input.clearState()
+        feeds.unsubscribe(app.store:feedIndex(), f.id)
+        app.store:deleteFeedData(f.id)
+        app.store:saveFeedIndex()
+        app:log("unsubscribed", f.id)
+    elseif name == "Bookmarks" then
+        app.store:removeBookmark(sel)
+    else
+        app.store:removeHistory(sel)
+    end
 end
 
 function S.key(app, action)
@@ -47,16 +85,26 @@ function S.key(app, action)
         h.top[h.tab] = top
     elseif action == "enter" then
         local e = list[sel]
+        if e and e.feed then return app:openFeed(e.feed) end
         if e then return app:open(e.url) end
     elseif action == "del" then
         if list[sel] then
-            if TABS[h.tab] == "Bookmarks" then app.store:removeBookmark(sel) else app.store:removeHistory(sel) end
-            h.sel[h.tab] = math.max(1, math.min(sel, #items(app, h.tab)))
+            remove(app, h, list[sel], sel)
+            local n = #items(app, h.tab)
+            local nsel = math.max(1, math.min(sel, n))
+            local top = h.top[h.tab] or 1
+            -- Keep the window inside the shortened list, filled when possible.
+            top = math.max(1, math.min(top, n - VISIBLE + 1))
+            if nsel < top then top = nsel end
+            h.sel[h.tab], h.top[h.tab] = nsel, top
         end
     elseif action == "f1" then
+        app:cancelRefresh()
         return app:promptGo()
+    elseif action == "f5" and TABS[h.tab] == "Feeds" then
+        app:refreshAll()
     elseif action == "esc" then
-        app.quit = true
+        if app.refresh then app:cancelRefresh() else app.quit = true end
     end
     app.dirty = true
 end
