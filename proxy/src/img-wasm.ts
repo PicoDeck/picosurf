@@ -1,15 +1,16 @@
-// The Workers resizer: jSquash WASM codecs plus omggif for GIF (spec 5.8).
+// The Workers resizer: jSquash WASM codecs to decode and encode, omggif for
+// GIF, and a box filter in JS to scale down (boxscale.ts) (spec 5.8).
 // The WASM modules are passed in because Workers can only load them as
 // bundled imports (worker.ts); tests compile them from node_modules.
 
 import decodeJpeg, { init as initJpegDec } from "@jsquash/jpeg/decode";
 import encodeJpeg, { init as initJpegEnc } from "@jsquash/jpeg/encode";
 import decodePng, { init as initPngDec } from "@jsquash/png/decode";
-import resize, { initResize } from "@jsquash/resize";
 import decodeWebp, { init as initWebpDec } from "@jsquash/webp/decode";
 import { GifReader } from "omggif";
+import { boxScale } from "./boxscale";
 import type { ImageType } from "./content";
-import { JPEG_QUALITY, type Resizer, fitWithin, flattenOnWhite } from "./img";
+import { JPEG_QUALITY, type Resizer, fitWithin } from "./img";
 
 /** Minimal ImageData for runtimes without one (Node, and possibly Workers); jSquash constructs it. */
 class ImageDataShim {
@@ -47,7 +48,6 @@ export interface WasmModules {
   jpegEnc: WebAssembly.Module;
   pngDec: WebAssembly.Module;
   webpDec: WebAssembly.Module;
-  resize: WebAssembly.Module;
 }
 
 // The emscripten codecs accept (module, options?) at runtime, though their
@@ -62,7 +62,6 @@ export function createWasmResizer(mods: WasmModules): Resizer {
       (initJpegEnc as unknown as Init)(mods.jpegEnc),
       (initPngDec as unknown as Init)(mods.pngDec),
       (initWebpDec as unknown as Init)(mods.webpDec),
-      (initResize as unknown as Init)(mods.resize),
     ]));
 
   return {
@@ -70,10 +69,12 @@ export function createWasmResizer(mods: WasmModules): Resizer {
     async resize(bytes, type) {
       await init();
       const source = await decode(bytes, type);
-      const { width, height } = fitWithin(source.width, source.height);
-      const scaled = width === source.width && height === source.height ? source : await resize(source, { width, height });
-      flattenOnWhite(scaled.data);
-      const out = await encodeJpeg(scaled, { quality: JPEG_QUALITY, baseline: true, progressive: false });
+      const scaled = boxScale(source.data, source.width, source.height, fitWithin(source.width, source.height));
+      const out = await encodeJpeg(new ImageData(scaled.data, scaled.width, scaled.height), {
+        quality: JPEG_QUALITY,
+        baseline: true,
+        progressive: false,
+      });
       return new Uint8Array(out);
     },
   };

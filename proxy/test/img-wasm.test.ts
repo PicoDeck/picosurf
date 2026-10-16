@@ -10,7 +10,6 @@ const make = () =>
     jpegEnc: mod("@jsquash/jpeg/codec/enc/mozjpeg_enc.wasm"),
     pngDec: mod("@jsquash/png/codec/pkg/squoosh_png_bg.wasm"),
     webpDec: mod("@jsquash/webp/codec/dec/webp_dec.wasm"),
-    resize: mod("@jsquash/resize/lib/resize/pkg/squoosh_resize_bg.wasm"),
   });
 
 resizerContract("wasm", async () => make());

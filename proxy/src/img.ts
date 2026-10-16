@@ -18,16 +18,3 @@ export function fitWithin(width: number, height: number, max = MAX_SIDE): Size {
   const scale = Math.min(1, max / width, max / height);
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
-
-/** Composites RGBA pixels over white in place, leaving every pixel opaque. */
-export function flattenOnWhite(rgba: Uint8ClampedArray): void {
-  for (let i = 0; i < rgba.length; i += 4) {
-    const a = rgba[i + 3];
-    if (a === 255) continue;
-    const k = a / 255;
-    rgba[i] = rgba[i] * k + 255 * (1 - k);
-    rgba[i + 1] = rgba[i + 1] * k + 255 * (1 - k);
-    rgba[i + 2] = rgba[i + 2] * k + 255 * (1 - k);
-    rgba[i + 3] = 255;
-  }
-}
