@@ -1,10 +1,10 @@
-// Decodes an 8-bit, non-interlaced PNG a row at a time: inflate.ts hands the
-// image data over 16 KiB at a time from a fixed window, each row is unfiltered
-// against the one before and goes into a BoxScaler. Memory is the PNG bytes,
-// the 64 KiB window, two rows and the small output, whatever the image's pixel
-// count or how far its data expands, and nothing is left for the garbage
-// collector (spec 5.8). Other PNGs (16-bit, under 8 bits, interlaced, very
-// wide) go to the WASM decoder (img-wasm.ts).
+// Decodes a PNG a row at a time: inflate.ts hands the image data over 16 KiB
+// at a time from a fixed window, each row is unfiltered against the one before
+// and goes into a BoxScaler. Memory is the PNG bytes, the 64 KiB window, two
+// rows and the small output, whatever the image's pixel count or how far its
+// data expands, and nothing is left for the garbage collector (spec 5.8).
+// Every PNG format: colour types 0, 2, 3, 4 and 6 at each bit depth PNG allows
+// them, with tRNS, interlaced (Adam7) or not.
 
 import { BoxScaler, type Rgba } from "./boxscale";
 import { MAX_SIDE, fitWithin } from "./img";
@@ -12,14 +12,32 @@ import { inflate } from "./inflate";
 
 const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 /**
- * The widest PNG this decoder takes. Its buffers grow with the width (about
- * 16 bytes a pixel of one row), so this keeps them under 2 MB; wider ones go
- * to the WASM decoder and its pixel cap.
+ * The most pixels a PNG may have each way. Buffers grow with the width (about
+ * 20 bytes a pixel of one row: under 2 MB) and the work with the number of
+ * rows, which, at about 90 ns a row on top of the pixels, this keeps to
+ * milliseconds.
  */
-export const PNG_STREAM_MAX_WIDTH = 100_000;
+export const PNG_MAX_SIDE = 100_000;
 
-/** Bytes per pixel of each colour type this decoder takes, at 8 bits a sample. */
-const CHANNELS: Partial<Record<number, number>> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+/** Samples a pixel, and the bit depths PNG allows, for each colour type. */
+const FORMATS: Partial<Record<number, { channels: number; depths: number[] }>> = {
+  0: { channels: 1, depths: [1, 2, 4, 8, 16] },
+  2: { channels: 3, depths: [8, 16] },
+  3: { channels: 1, depths: [1, 2, 4, 8] },
+  4: { channels: 2, depths: [8, 16] },
+  6: { channels: 4, depths: [8, 16] },
+};
+
+/** Each Adam7 pass: first column, first row, column step, row step. */
+const ADAM7 = [
+  [0, 0, 8, 8],
+  [4, 0, 8, 8],
+  [0, 4, 4, 8],
+  [2, 0, 4, 4],
+  [0, 2, 2, 4],
+  [1, 0, 2, 2],
+  [0, 1, 1, 2],
+] as const;
 
 const u16 = (b: Uint8Array, i: number) => (b[i] << 8) | b[i + 1];
 const u32 = (b: Uint8Array, i: number) => ((b[i] << 24) >>> 0) + (b[i + 1] << 16) + (b[i + 2] << 8) + b[i + 3];
@@ -52,22 +70,22 @@ function readHeader(b: Uint8Array): Header | null {
 }
 
 /**
- * Whether `streamPng` takes this PNG: 8 bits a sample, not interlaced, colour
- * type 0, 2, 3, 4 or 6, at most PNG_STREAM_MAX_WIDTH wide. Reads only the header.
+ * Whether `streamPng` takes this PNG: a colour type and bit depth PNG allows,
+ * Adam7 or no interlacing, at most PNG_MAX_SIDE each way. Reads only the header.
  */
 export function canStreamPng(b: Uint8Array): boolean {
   const h = readHeader(b);
-  return h !== null && streamable(h);
+  return h !== null && supported(h);
 }
 
-function streamable(h: Header): boolean {
+function supported(h: Header): boolean {
   return (
-    h.bitDepth === 8 &&
-    h.interlace === 0 &&
-    CHANNELS[h.colorType] !== undefined &&
+    (FORMATS[h.colorType]?.depths.includes(h.bitDepth) ?? false) &&
     h.compression === 0 &&
     h.filter === 0 &&
-    h.width <= PNG_STREAM_MAX_WIDTH
+    (h.interlace === 0 || h.interlace === 1) &&
+    h.width <= PNG_MAX_SIDE &&
+    h.height <= PNG_MAX_SIDE
   );
 }
 
@@ -90,7 +108,7 @@ export async function streamPng(bytes: Uint8Array, max = MAX_SIDE): Promise<Rgba
 function parse(b: Uint8Array): Png {
   const h = readHeader(b);
   if (!h) throw new Error("Not a PNG");
-  if (!streamable(h)) throw new Error("PNG format is not streamable");
+  if (!supported(h)) throw new Error("PNG format is not supported, or the image is too large");
   if (h.width === 0 || h.height === 0) throw new Error("PNG has a zero dimension");
   const png: Png = { ...h, palette: null, trns: null, idatAt: -1 };
   let ended = false;
@@ -134,124 +152,174 @@ function idatData(b: Uint8Array, at: number): () => Uint8Array | null {
   };
 }
 
-/** Collects the inflated stream into rows, unfilters each against the one before and hands it to the scaler as RGBA. */
+/** One Adam7 pass (or the whole image): where its pixels sit, and its size in pixels and in bytes a row. */
+interface Pass {
+  x0: number;
+  y0: number;
+  dx: number;
+  dy: number;
+  width: number;
+  rows: number;
+  stride: number;
+}
+
+/**
+ * Collects the inflated stream into rows, pass by pass when interlaced,
+ * unfilters each against the one before and hands it to the scaler as RGBA.
+ */
 class Rows {
-  private readonly width: number;
-  private readonly height: number;
+  private readonly depth: number;
+  /** Bytes a pixel, for the filters: at least 1. */
   private readonly bpp: number;
-  private readonly stride: number;
+  private readonly passes: Pass[] = [];
+  private pass = 0;
+  private row = 0;
   private prev: Uint8Array;
   private cur: Uint8Array;
-  /** The row as RGBA; colour type 6 rows already are. */
   private readonly rgba: Uint8Array;
   private readonly rgba32: Uint32Array;
-  /** RGBA for each grey level or palette index (colour types 0 and 3). */
+  /** RGBA for each grey level or palette index (colour type 3, and 0 at up to 8 bits). */
   private readonly lut: Uint32Array | null = null;
-  /** The transparent colour of an RGB image (tRNS), if it has one. */
-  private readonly key: [number, number, number] | null = null;
+  /** The transparent grey (colour type 0 at 16 bits) or RGB (colour type 2) of tRNS, in sample units. */
+  private readonly key: number[] | null = null;
   private filter = -1;
   private pos = 0;
-  private y = 0;
 
   constructor(
     private readonly png: Png,
     private readonly scaler: BoxScaler,
   ) {
-    this.width = png.width;
-    this.height = png.height;
-    this.bpp = CHANNELS[png.colorType] ?? 0;
-    this.stride = this.width * this.bpp;
-    this.prev = new Uint8Array(this.stride);
-    this.cur = new Uint8Array(this.stride);
-    this.rgba = png.colorType === 6 ? new Uint8Array(0) : new Uint8Array(this.width * 4);
+    this.depth = png.bitDepth;
+    const bits = this.depth * (FORMATS[png.colorType]?.channels ?? 0);
+    this.bpp = Math.max(1, bits >> 3);
+    for (const [x0, y0, dx, dy] of png.interlace ? ADAM7 : ([[0, 0, 1, 1]] as const)) {
+      const width = Math.ceil((png.width - x0) / dx);
+      const rows = Math.ceil((png.height - y0) / dy);
+      if (width > 0 && rows > 0) this.passes.push({ x0, y0, dx, dy, width, rows, stride: Math.ceil((width * bits) / 8) });
+    }
+    const stride = Math.ceil((png.width * bits) / 8);
+    this.prev = new Uint8Array(stride);
+    this.cur = new Uint8Array(stride);
+    this.rgba = new Uint8Array(png.width * 4);
     this.rgba32 = new Uint32Array(this.rgba.buffer);
     const trns = png.trns;
-    if (png.colorType === 0 || png.colorType === 3) {
+    if (png.colorType === 3 || (png.colorType === 0 && this.depth <= 8)) {
+      const levels = 1 << this.depth;
       const lut = new Uint8Array(256 * 4);
-      for (let i = 0; i < 256; i++) {
+      for (let v = 0; v < levels; v++) {
         if (png.colorType === 0) {
-          lut.set([i, i, i, trns && trns.length >= 2 && u16(trns, 0) === i ? 0 : 255], i * 4);
+          const g = (v * 255) / (levels - 1);
+          lut.set([g, g, g, trns && trns.length >= 2 && u16(trns, 0) === v ? 0 : 255], v * 4);
         } else {
           // An index past the palette's end is black, as in libpng.
           const pal = png.palette as Uint8Array;
-          const rgb = i * 3 < pal.length ? pal.subarray(i * 3, i * 3 + 3) : [0, 0, 0];
-          lut.set([rgb[0], rgb[1], rgb[2], trns && i < trns.length ? trns[i] : 255], i * 4);
+          const rgb = v * 3 < pal.length ? pal.subarray(v * 3, v * 3 + 3) : [0, 0, 0];
+          lut.set([rgb[0], rgb[1], rgb[2], trns && v < trns.length ? trns[v] : 255], v * 4);
         }
       }
       this.lut = new Uint32Array(lut.buffer);
+    } else if (png.colorType === 0 && trns && trns.length >= 2) {
+      this.key = [u16(trns, 0)];
     } else if (png.colorType === 2 && trns && trns.length >= 6) {
       this.key = [u16(trns, 0), u16(trns, 2), u16(trns, 4)];
     }
   }
 
   get done(): boolean {
-    return this.y === this.height;
+    return this.pass === this.passes.length;
   }
 
   /** Takes inflated bytes `src[from..to)`; anything past the last row is ignored. Returns whether the image is complete. */
   push(src: Uint8Array, from: number, to: number): boolean {
     let i = from;
-    while (i < to && this.y < this.height) {
+    while (i < to && this.pass < this.passes.length) {
       if (this.filter < 0) {
         this.filter = src[i++];
         if (this.filter > 4) throw new Error(`Unknown PNG filter type ${this.filter}`);
         continue;
       }
-      const n = Math.min(this.stride - this.pos, to - i);
+      const stride = this.passes[this.pass].stride;
+      const n = Math.min(stride - this.pos, to - i);
       this.cur.set(src.subarray(i, i + n), this.pos);
       this.pos += n;
       i += n;
-      if (this.pos === this.stride) this.endRow();
+      if (this.pos === stride) this.endRow();
     }
     return this.done;
   }
 
   private endRow(): void {
-    unfilter(this.filter, this.cur, this.prev, this.bpp);
-    this.scaler.addRow(this.toRgba(this.cur));
+    const p = this.passes[this.pass];
+    unfilter(this.filter, this.cur, this.prev, this.bpp, p.stride);
+    this.scaler.addPixels(p.y0 + this.row * p.dy, this.toRgba(this.cur, p.width), p.x0, p.dx, p.width);
     [this.prev, this.cur] = [this.cur, this.prev];
     this.filter = -1;
     this.pos = 0;
-    this.y++;
+    if (++this.row === p.rows) {
+      // The next pass starts against a row of zeros.
+      this.pass++;
+      this.row = 0;
+      this.prev.fill(0);
+    }
   }
 
-  private toRgba(row: Uint8Array): Uint8Array {
-    const { rgba, width } = this;
+  /** The first `n` pixels of an unfiltered row as RGBA. 16-bit samples keep their high byte, as libpng's strip_16 does. */
+  private toRgba(row: Uint8Array, n: number): Uint8Array {
+    const { rgba, depth, key } = this;
+    if (this.lut) {
+      const lut = this.lut;
+      const out = this.rgba32;
+      if (depth === 8) for (let x = 0; x < n; x++) out[x] = lut[row[x]];
+      else {
+        const mask = (1 << depth) - 1;
+        for (let x = 0, bit = 0; x < n; x++, bit += depth) out[x] = lut[(row[bit >> 3] >> (8 - depth - (bit & 7))) & mask];
+      }
+      return rgba;
+    }
+    const w = depth >> 3; // bytes a sample: 1 or 2
     switch (this.png.colorType) {
-      case 6:
-        return row;
-      case 0:
-      case 3: {
-        const lut = this.lut as Uint32Array;
-        for (let x = 0; x < width; x++) this.rgba32[x] = lut[row[x]];
-        return rgba;
-      }
-      case 4:
-        for (let x = 0, i = 0, o = 0; x < width; x++, i += 2, o += 4) {
+      case 0: // 16-bit grey
+        for (let x = 0, i = 0, o = 0; x < n; x++, i += 2, o += 4) {
           rgba[o] = rgba[o + 1] = rgba[o + 2] = row[i];
-          rgba[o + 3] = row[i + 1];
+          rgba[o + 3] = key && u16(row, i) === key[0] ? 0 : 255;
         }
         return rgba;
-      default: {
-        const key = this.key;
-        for (let x = 0, i = 0, o = 0; x < width; x++, i += 3, o += 4) {
-          const r = row[i];
-          const g = row[i + 1];
-          const b = row[i + 2];
-          rgba[o] = r;
-          rgba[o + 1] = g;
-          rgba[o + 2] = b;
-          rgba[o + 3] = key && r === key[0] && g === key[1] && b === key[2] ? 0 : 255;
+      case 2:
+        for (let x = 0, i = 0, o = 0; x < n; x++, i += 3 * w, o += 4) {
+          rgba[o] = row[i];
+          rgba[o + 1] = row[i + w];
+          rgba[o + 2] = row[i + 2 * w];
+          let opaque = true;
+          if (key) {
+            opaque =
+              w === 1
+                ? row[i] !== key[0] || row[i + 1] !== key[1] || row[i + 2] !== key[2]
+                : u16(row, i) !== key[0] || u16(row, i + 2) !== key[1] || u16(row, i + 4) !== key[2];
+          }
+          rgba[o + 3] = opaque ? 255 : 0;
         }
         return rgba;
-      }
+      case 4:
+        for (let x = 0, i = 0, o = 0; x < n; x++, i += 2 * w, o += 4) {
+          rgba[o] = rgba[o + 1] = rgba[o + 2] = row[i];
+          rgba[o + 3] = row[i + w];
+        }
+        return rgba;
+      default: // 6
+        if (w === 1) return row;
+        for (let x = 0, i = 0, o = 0; x < n; x++, i += 8, o += 4) {
+          rgba[o] = row[i];
+          rgba[o + 1] = row[i + 2];
+          rgba[o + 2] = row[i + 4];
+          rgba[o + 3] = row[i + 6];
+        }
+        return rgba;
     }
   }
 }
 
-/** Reverses a PNG filter in place; `cur` holds the filtered bytes, `prev` the previous row (zeros for the first). */
-function unfilter(filter: number, cur: Uint8Array, prev: Uint8Array, bpp: number): void {
-  const n = cur.length;
+/** Reverses a PNG filter on the first `n` bytes of `cur` in place; `prev` holds the previous row (zeros for a pass's first). */
+function unfilter(filter: number, cur: Uint8Array, prev: Uint8Array, bpp: number, n: number): void {
   switch (filter) {
     case 1: // Sub
       for (let x = bpp; x < n; x++) cur[x] += cur[x - bpp];

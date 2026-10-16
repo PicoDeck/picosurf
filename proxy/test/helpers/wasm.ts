@@ -7,6 +7,5 @@ const mod = (path: string) => new WebAssembly.Module(readFileSync(new URL(`../..
 export const wasmModules = (): WasmModules => ({
   jpegDec: mod("@jsquash/jpeg/codec/dec/mozjpeg_dec.wasm"),
   jpegEnc: mod("@jsquash/jpeg/codec/enc/mozjpeg_enc.wasm"),
-  pngDec: mod("@jsquash/png/codec/pkg/squoosh_png_bg.wasm"),
   webpDec: mod("@jsquash/webp/codec/dec/webp_dec.wasm"),
 });

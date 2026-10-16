@@ -31,7 +31,9 @@ export class BoxScaler {
   private readonly colShare: Float32Array;
   private readonly row = new Float64Array(0);
   private readonly sums: Float64Array;
+  /** The next row addRow() adds, and how many pixels have been added. */
   private y = 0;
+  private added = 0;
 
   constructor(
     readonly srcWidth: number,
@@ -56,19 +58,35 @@ export class BoxScaler {
   addRow(rgba: Uint8Array | Uint8ClampedArray, offset = 0): void {
     if (this.y >= this.srcHeight) throw new RangeError("More rows than the image has");
     if (offset + this.srcWidth * 4 > rgba.length) throw new RangeError("Row runs past the end of the buffer");
+    this.accumulate(this.y++, rgba, offset, 0, 1, this.srcWidth);
+  }
+
+  /**
+   * Adds `count` RGBA pixels from the start of `rgba` as source row `y`'s
+   * columns x0, x0 + dx, and so on. Rows may come in any order and in parts,
+   * as an interlaced PNG's passes bring them.
+   */
+  addPixels(y: number, rgba: Uint8Array | Uint8ClampedArray, x0: number, dx: number, count: number): void {
+    if (y < 0 || y >= this.srcHeight || x0 < 0 || dx < 1 || count < 1 || x0 + (count - 1) * dx >= this.srcWidth || count * 4 > rgba.length) {
+      throw new RangeError(`Pixels outside the ${this.srcWidth}x${this.srcHeight} image`);
+    }
+    this.accumulate(y, rgba, 0, x0, dx, count);
+  }
+
+  private accumulate(y: number, rgba: Uint8Array | Uint8ClampedArray, offset: number, x0: number, dx: number, count: number): void {
     const { row, col, colShare } = this;
     row.fill(0);
-    for (let x = 0, i = offset; x < this.srcWidth; x++, i += 4) {
+    for (let k = 0, x = x0, i = offset; k < count; k++, x += dx, i += 4) {
       let r = rgba[i];
       let g = rgba[i + 1];
       let b = rgba[i + 2];
       const a = rgba[i + 3];
       if (a !== 255) {
         // Over white: c * a/255 + 255 * (1 - a/255).
-        const k = a / 255;
-        r = r * k + 255 - a;
-        g = g * k + 255 - a;
-        b = b * k + 255 - a;
+        const f = a / 255;
+        r = r * f + 255 - a;
+        g = g * f + 255 - a;
+        b = b * f + 255 - a;
       }
       const o = col[x] * 3;
       const s = colShare[x];
@@ -82,17 +100,18 @@ export class BoxScaler {
         row[o + 5] += b * t;
       }
     }
-    const [oy, share] = split(this.y, this.srcHeight, this.height);
+    const [oy, share] = split(y, this.srcHeight, this.height);
     const n = this.width * 3;
     const top = oy * n;
     for (let j = 0; j < n; j++) this.sums[top + j] += row[j] * share;
     if (share !== 1) for (let j = 0, rest = 1 - share; j < n; j++) this.sums[top + n + j] += row[j] * rest;
-    this.y++;
+    this.added += count;
   }
 
-  /** The scaled image. Throws unless every source row has been added. */
+  /** The scaled image. Throws unless every source pixel has been added. */
   finish(): Rgba {
-    if (this.y !== this.srcHeight) throw new RangeError(`Got ${this.y} of ${this.srcHeight} rows`);
+    const all = this.srcWidth * this.srcHeight;
+    if (this.added !== all) throw new RangeError(`Got ${this.added} of ${all} pixels`);
     const { width, height, sums } = this;
     // Every output pixel covers the same source area.
     const perArea = (width * height) / (this.srcWidth * this.srcHeight);

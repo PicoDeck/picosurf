@@ -3,6 +3,7 @@ import sharp from "sharp";
 import { BoxScaler, boxScale } from "../src/boxscale";
 import { fitWithin } from "../src/img";
 import { meanAbsError, sharpReference } from "./helpers/pixels";
+import { ADAM7 } from "./helpers/png";
 
 /** A width x height RGBA image from a per-pixel function. */
 function image(width: number, height: number, px: (x: number, y: number) => [number, number, number, number]): Uint8ClampedArray {
@@ -85,6 +86,32 @@ describe("BoxScaler", () => {
     const scaler = new BoxScaler(64, 48, { width: 20, height: 15 });
     for (let y = 0; y < 48; y++) scaler.addRow(src, y * 64 * 4);
     expect(scaler.finish().data).toEqual(boxScale(src, 64, 48, { width: 20, height: 15 }).data);
+  });
+
+  it("takes rows in any order and every few pixels, as an interlaced PNG's passes come", () => {
+    const [w, h] = [997, 613];
+    const src = gradient(w, h);
+    const size = fitWithin(w, h);
+    const scaler = new BoxScaler(w, h, size);
+    const row = new Uint8Array(w * 4);
+    for (const [x0, y0, dx, dy] of ADAM7) {
+      for (let y = y0; y < h; y += dy) {
+        let n = 0;
+        for (let x = x0; x < w; x += dx, n++) row.set(src.subarray((y * w + x) * 4, (y * w + x) * 4 + 4), n * 4);
+        if (n > 0) scaler.addPixels(y, row, x0, dx, n);
+      }
+    }
+    const out = scaler.finish().data;
+    const expected = boxScale(src, w, h, size).data;
+    let worst = 0;
+    for (let i = 0; i < out.length; i++) worst = Math.max(worst, Math.abs(out[i] - expected[i]));
+    expect(worst).toBeLessThanOrEqual(1); // the sums add up in another order
+  });
+
+  it("refuses pixels outside the image", () => {
+    const scaler = new BoxScaler(8, 8, { width: 4, height: 4 });
+    expect(() => scaler.addPixels(8, new Uint8Array(32), 0, 1, 8)).toThrow();
+    expect(() => scaler.addPixels(0, new Uint8Array(32), 1, 2, 5)).toThrow();
   });
 
   it("refuses to finish before every row has arrived", () => {

@@ -3,7 +3,6 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { decode as decodePng } from "@jsquash/png/codec/pkg/squoosh_png.js";
 import { createWasmResizer } from "../src/img-wasm";
 import { jpegInfo } from "../src/imgsize";
 import { streamPng } from "../src/png-stream";
@@ -11,10 +10,6 @@ import { encodePng, photo } from "./helpers/png";
 import { imageFixture } from "./helpers/resizer-contract";
 import { wasmModules } from "./helpers/wasm";
 
-vi.mock("@jsquash/png/codec/pkg/squoosh_png.js", async (importOriginal) => {
-  const orig = await importOriginal<typeof import("@jsquash/png/codec/pkg/squoosh_png.js")>();
-  return { ...orig, decode: vi.fn(orig.decode) };
-});
 /** How many streamPng calls are running now, and the most at once. */
 const flight = vi.hoisted(() => ({ now: 0, most: 0 }));
 vi.mock("../src/png-stream", async (importOriginal) => {
@@ -33,22 +28,19 @@ vi.mock("../src/png-stream", async (importOriginal) => {
 const resizer = createWasmResizer(wasmModules());
 
 beforeEach(() => {
-  vi.mocked(decodePng).mockClear();
   vi.mocked(streamPng).mockClear();
 });
 
 describe("wasm resizer decoder choice", () => {
-  it.each(["photo.png", "small.png"])("streams the 8-bit %s and never calls the WASM PNG decoder", async (file) => {
+  it.each(["photo.png", "small.png"])("streams %s", async (file) => {
     expect(jpegInfo(await resizer.resize(imageFixture(file), "png"))?.sof).toBe(0xc0);
     expect(streamPng).toHaveBeenCalledTimes(1);
-    expect(decodePng).not.toHaveBeenCalled();
   });
 
-  it("sends a 16-bit PNG to the WASM PNG decoder", async () => {
+  it("streams a 16-bit PNG too", async () => {
     const png = await sharp(photo(400, 300, 3), { raw: { width: 400, height: 300, channels: 3 } }).toColourspace("rgb16").png().toBuffer();
     await resizer.resize(new Uint8Array(png), "png");
-    expect(decodePng).toHaveBeenCalledTimes(1);
-    expect(streamPng).not.toHaveBeenCalled();
+    expect(streamPng).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -3,7 +3,7 @@ import sharp, { type Sharp } from "sharp";
 import { handleRequest } from "../src/handler";
 import { JPEG_MAX_PIXELS, PNG_STREAM_MAX_PIXELS, WASM_MAX_PIXELS, createWasmResizer } from "../src/img-wasm";
 import { jpegInfo } from "../src/imgsize";
-import { canStreamPng } from "../src/png-stream";
+import { PNG_MAX_SIDE } from "../src/png-stream";
 import { fakeFetch } from "./helpers/fakefetch";
 import { SIGNATURE, concat, encodePng, ihdr, photo } from "./helpers/png";
 import { imageFixture, resizerContract } from "./helpers/resizer-contract";
@@ -50,9 +50,8 @@ describe("wasm resizer PNG paths", () => {
     ["16-bit", (img: Sharp) => img.toColourspace("rgb16").png()],
     ["interlaced", (img: Sharp) => img.png({ progressive: true })],
     ["4-bit palette", (img: Sharp) => img.png({ palette: true, colours: 16 })],
-  ])("decodes a %s PNG with the WASM decoder", async (_name, encode) => {
+  ])("resizes a %s PNG", async (_name, encode) => {
     const png = new Uint8Array(await encode(sharp(photo(800, 600, 3), { raw: { width: 800, height: 600, channels: 3 } })).toBuffer());
-    expect(canStreamPng(png)).toBe(false);
     expect(jpegSize(await make().resize(png, "png"))).toEqual({ width: 320, height: 240 });
   });
 
@@ -89,7 +88,8 @@ describe("wasm resizer pixel caps", () => {
     const interlaced = await sharp(photo(50, 40, 3), { raw: { width: 50, height: 40, channels: 3 } }).png({ progressive: true }).toBuffer();
     expect(resizer.maxPixels(imageFixture("photo.jpg"), "jpeg")).toBe(JPEG_MAX_PIXELS);
     expect(resizer.maxPixels(imageFixture("photo.png"), "png")).toBe(PNG_STREAM_MAX_PIXELS);
-    expect(resizer.maxPixels(new Uint8Array(interlaced), "png")).toBe(WASM_MAX_PIXELS);
+    expect(resizer.maxPixels(new Uint8Array(interlaced), "png")).toBe(PNG_STREAM_MAX_PIXELS);
+    expect(resizer.maxPixels(concat(SIGNATURE, ihdr(PNG_MAX_SIDE + 1, 1, 2)), "png")).toBe(0);
     expect(resizer.maxPixels(imageFixture("photo.webp"), "webp")).toBe(WASM_MAX_PIXELS);
     expect(resizer.maxPixels(imageFixture("photo.gif"), "gif")).toBe(WASM_MAX_PIXELS);
     expect([JPEG_MAX_PIXELS, WASM_MAX_PIXELS, PNG_STREAM_MAX_PIXELS]).toEqual([8_000_000, 2_000_000, 100_000_000]);
@@ -119,8 +119,9 @@ describe("wasm resizer pixel caps", () => {
 
   it.each([
     ["a streamable PNG over PNG_STREAM_MAX_PIXELS", concat(SIGNATURE, ihdr(10_001, 10_000, 2)), "10001x10000"],
-    ["an interlaced PNG over WASM_MAX_PIXELS", concat(SIGNATURE, ihdr(2001, 1000, 2, 8, 1)), "2001x1000"],
-    ["a 16-bit PNG over WASM_MAX_PIXELS", concat(SIGNATURE, ihdr(2001, 1000, 2, 16)), "2001x1000"],
+    ["an interlaced 16-bit PNG over PNG_STREAM_MAX_PIXELS", concat(SIGNATURE, ihdr(10_001, 10_000, 2, 16, 1)), "10001x10000"],
+    ["a PNG wider than PNG_MAX_SIDE", concat(SIGNATURE, ihdr(PNG_MAX_SIDE + 1, 1, 2)), "100001x1"],
+    ["a PNG taller than PNG_MAX_SIDE", concat(SIGNATURE, ihdr(1, PNG_MAX_SIDE + 1, 0, 1)), "1x100001"],
   ])("refuses %s with 413", async (_name, png, size) => {
     const res = await viaHandler(png, "image/png");
     expect(res.status).toBe(413);

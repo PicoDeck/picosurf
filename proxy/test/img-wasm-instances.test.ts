@@ -27,7 +27,6 @@ const resizer = createWasmResizer(mods);
 const count = () => ({
   jpegDec: created.filter((m) => m === mods.jpegDec).length,
   jpegEnc: created.filter((m) => m === mods.jpegEnc).length,
-  pngDec: created.filter((m) => m === mods.pngDec).length,
   webpDec: created.filter((m) => m === mods.webpDec).length,
 });
 
@@ -45,7 +44,7 @@ describe("wasm resizer codec instances", () => {
     await resizer.resize(imageFixture("photo.jpg"), "jpeg");
     await resizer.resize(imageFixture("photo-progressive.jpg"), "jpeg");
     await resizer.resize(imageFixture("photo.jpg"), "jpeg");
-    expect(count()).toEqual({ jpegDec: 1, jpegEnc: 1, pngDec: 0, webpDec: 0 });
+    expect(count()).toEqual({ jpegDec: 1, jpegEnc: 1, webpDec: 0 });
   });
 
   it("replaces the JPEG decoder after a decode fails (mozjpeg aborts on CMYK)", async () => {
@@ -56,21 +55,17 @@ describe("wasm resizer codec instances", () => {
     expect(count().jpegDec).toBe(1);
   });
 
-  it("streams an 8-bit PNG with no decoder instance", async () => {
+  it("streams PNGs, 8-bit, 16-bit or interlaced, with no decoder instance", async () => {
+    const img = () => sharp(photo(400, 300, 3), { raw: { width: 400, height: 300, channels: 3 } });
     await resizer.resize(imageFixture("photo.png"), "png");
-    expect(count()).toEqual({ jpegDec: 0, jpegEnc: 0, pngDec: 0, webpDec: 0 });
+    await resizer.resize(new Uint8Array(await img().toColourspace("rgb16").png().toBuffer()), "png");
+    await resizer.resize(new Uint8Array(await img().png({ progressive: true }).toBuffer()), "png");
+    expect(created).toEqual([]);
   });
 
   it("creates the WebP decoder only for WebP, once", async () => {
     await resizer.resize(imageFixture("photo.webp"), "webp");
     await resizer.resize(imageFixture("photo-alpha.webp"), "webp");
-    expect(count()).toEqual({ jpegDec: 0, jpegEnc: 0, pngDec: 0, webpDec: 1 });
-  });
-
-  it("creates the WASM PNG decoder only for a PNG that cannot stream", async () => {
-    const png = await sharp(photo(400, 300, 3), { raw: { width: 400, height: 300, channels: 3 } }).png({ progressive: true }).toBuffer();
-    await resizer.resize(new Uint8Array(png), "png");
-    await resizer.resize(new Uint8Array(png), "png");
-    expect(count()).toEqual({ jpegDec: 0, jpegEnc: 0, pngDec: 1, webpDec: 0 });
+    expect(count()).toEqual({ jpegDec: 0, jpegEnc: 0, webpDec: 1 });
   });
 });

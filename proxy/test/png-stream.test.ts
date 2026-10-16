@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import sharp from "sharp";
+import sharp, { type Sharp } from "sharp";
 import { fitWithin } from "../src/img";
 import { deflateSync, inflateSync } from "node:zlib";
 import { INFLATE_FLUSH } from "../src/inflate";
-import { PNG_STREAM_MAX_WIDTH, canStreamPng, streamPng } from "../src/png-stream";
+import { PNG_MAX_SIDE, canStreamPng, streamPng } from "../src/png-stream";
 import { meanAbsError, sharpReference } from "./helpers/pixels";
-import { CHANNELS, type ColorType, type RawPng, SIGNATURE, chunk, concat, encodePng, ihdr, imageData, photo } from "./helpers/png";
+import { CHANNELS, type ColorType, type RawPng, SIGNATURE, chunk, concat, encodePng, ihdr, imageData, photo, samples } from "./helpers/png";
 
 /** A ramp palette: neighbouring indexes have neighbouring colours. */
 const PALETTE = Uint8Array.from({ length: 256 * 3 }, (_, i) => [Math.floor(i / 3), 255 - Math.floor(i / 3), (Math.floor(i / 3) * 3) & 0xff][i % 3]);
@@ -59,27 +59,52 @@ const BOMB = () => (bomb ??= new Uint8Array(deflateSync(new Uint8Array(200 * 102
 
 /** What `p` looks like over white, worked out from its samples directly. */
 function expectedRgba(p: RawPng): number[] {
+  const depth = p.bitDepth ?? 8;
+  const to8 = (v: number) => (depth === 16 ? v >> 8 : depth === 8 ? v : (v * 255) / ((1 << depth) - 1));
+  const key = (i: number) => (p.trns ? (p.trns[i] << 8) | p.trns[i + 1] : -1); // in sample units
+  const px = p.pixels;
   const out: number[] = [];
-  const key = (i: number) => (p.trns ? (p.trns[i] << 8) | p.trns[i + 1] : -1);
   for (let i = 0; i < p.width * p.height; i++) {
     let rgba: number[];
     if (p.colorType === 0) {
-      const g = p.pixels[i];
-      rgba = [g, g, g, g === key(0) ? 0 : 255];
+      const g = px[i];
+      rgba = [to8(g), to8(g), to8(g), g === key(0) ? 0 : 255];
     } else if (p.colorType === 2) {
-      const [r, g, b] = p.pixels.subarray(i * 3, i * 3 + 3);
-      rgba = [r, g, b, r === key(0) && g === key(2) && b === key(4) ? 0 : 255];
+      const [r, g, b] = [px[i * 3], px[i * 3 + 1], px[i * 3 + 2]];
+      rgba = [to8(r), to8(g), to8(b), r === key(0) && g === key(2) && b === key(4) ? 0 : 255];
     } else if (p.colorType === 3) {
-      const n = p.pixels[i];
+      const n = px[i];
       rgba = [...(p.palette as Uint8Array).subarray(n * 3, n * 3 + 3), p.trns && n < p.trns.length ? p.trns[n] : 255];
     } else if (p.colorType === 4) {
-      const [g, a] = p.pixels.subarray(i * 2, i * 2 + 2);
-      rgba = [g, g, g, a];
+      rgba = [to8(px[i * 2]), to8(px[i * 2]), to8(px[i * 2]), to8(px[i * 2 + 1])];
     } else {
-      rgba = Array.from(p.pixels.subarray(i * 4, i * 4 + 4));
+      rgba = [0, 1, 2, 3].map((c) => to8(px[i * 4 + c]));
     }
     const a = rgba[3];
     out.push(...rgba.slice(0, 3).map((c) => (c * a) / 255 + 255 - a), 255);
+  }
+  return out;
+}
+
+/** Every colour type and bit depth PNG allows, with a tRNS chunk where it can have one. */
+function formats(width: number, height: number, interlaced: boolean): [string, RawPng][] {
+  const out: [string, RawPng][] = [];
+  const DEPTHS: [ColorType, number[]][] = [[0, [1, 2, 4, 8, 16]], [2, [8, 16]], [3, [1, 2, 4, 8]], [4, [8, 16]], [6, [8, 16]]];
+  for (const [colorType, depths] of DEPTHS) {
+    for (const bitDepth of depths) {
+      const p: RawPng = { width, height, colorType, bitDepth, interlaced, pixels: samples(width, height, colorType, bitDepth) };
+      if (colorType === 3) {
+        p.palette = PALETTE.subarray(0, 3 << bitDepth);
+        // Alpha ramps up over the first entries (and stays opaque past tRNS's end).
+        const n = Math.min(100, 1 << bitDepth);
+        p.trns = Uint8Array.from({ length: n }, (_, i) => Math.round((i * 255) / Math.max(1, n - 1)));
+      }
+      out.push([`colour type ${colorType}, ${bitDepth}-bit`, p]);
+      // A transparent key: a sample value that occurs (pixel 0's).
+      const k = (c: number) => [p.pixels[c] >> 8, p.pixels[c] & 0xff];
+      if (colorType === 0) out.push([`colour type 0, ${bitDepth}-bit, tRNS key`, { ...p, trns: Uint8Array.from(k(0)) }]);
+      if (colorType === 2) out.push([`colour type 2, ${bitDepth}-bit, tRNS key`, { ...p, trns: Uint8Array.from([...k(0), ...k(1), ...k(2)]) }]);
+    }
   }
   return out;
 }
@@ -230,8 +255,8 @@ describe("streamPng", () => {
   });
 
   it.each([2, 6] as const)("decodes a real 100000x1 image of colour type %d like sharp", async (colorType) => {
-    const p = raw(PNG_STREAM_MAX_WIDTH, 1, colorType);
-    await expectLikeSharp(encodePng(p), PNG_STREAM_MAX_WIDTH, 1);
+    const p = raw(PNG_MAX_SIDE, 1, colorType);
+    await expectLikeSharp(encodePng(p), PNG_MAX_SIDE, 1);
   });
 
   it("decodes a 1x1 image", async () => {
@@ -240,31 +265,67 @@ describe("streamPng", () => {
   });
 });
 
-describe("canStreamPng", () => {
-  it.each([0, 2, 3, 4, 6] as const)("takes 8-bit colour type %d", (colorType) => {
-    expect(canStreamPng(concat(SIGNATURE, ihdr(10, 10, colorType)))).toBe(true);
+describe("every PNG format", () => {
+  it.each(formats(700, 540, false))("decodes %s like sharp", async (_name, p) => {
+    await expectLikeSharp(encodePng(p), p.width, p.height);
   });
 
-  it("leaves 16-bit PNGs to the fallback decoder", async () => {
-    const png = await sharp(photo(50, 40, 3), { raw: { width: 50, height: 40, channels: 3 } }).toColourspace("rgb16").png().toBuffer();
-    expect(png[24]).toBe(16);
+  it.each(formats(700, 540, true))("decodes %s, interlaced, like sharp", async (_name, p) => {
+    await expectLikeSharp(encodePng(p), p.width, p.height);
+  });
+
+  it.each([...formats(37, 23, false), ...formats(37, 23, true).map(([n, p]): [string, RawPng] => [`${n}, interlaced`, p])])(
+    "reproduces every pixel of %s at full size",
+    async (_name, p) => {
+      const out = await streamPng(encodePng(p));
+      const expected = expectedRgba(p);
+      let worst = 0;
+      for (let i = 0; i < expected.length; i++) worst = Math.max(worst, Math.abs(out.data[i] - expected[i]));
+      expect(worst).toBeLessThanOrEqual(1);
+    },
+  );
+
+  // Adam7 passes are empty for images this small, and the decoder must skip them.
+  it.each([
+    [1, 1], [2, 1], [1, 2], [3, 3], [5, 9], [9, 5], [8, 8],
+  ])("decodes a %dx%d interlaced image exactly", async (width, height) => {
+    for (const colorType of [0, 2, 3, 4, 6] as const) {
+      const p: RawPng = { width, height, colorType, interlaced: true, pixels: samples(width, height, colorType, 8), ...(colorType === 3 ? { palette: PALETTE } : {}) };
+      const out = await streamPng(encodePng(p));
+      expect(Array.from(out.data).map((v, i) => Math.abs(v - expectedRgba(p)[i]) <= 1)).not.toContain(false);
+    }
+  });
+
+  it.each([
+    ["16-bit RGB", (img: Sharp) => img.toColourspace("rgb16").png()],
+    ["16-bit grey", (img: Sharp) => img.toColourspace("grey16").png()],
+    ["interlaced RGB", (img: Sharp) => img.png({ progressive: true })],
+    ["4-bit palette", (img: Sharp) => img.png({ palette: true, colours: 16 })],
+    ["1-bit palette", (img: Sharp) => img.png({ palette: true, colours: 2 })],
+    ["interlaced 2-bit palette", (img: Sharp) => img.png({ palette: true, colours: 4, progressive: true })],
+  ])("decodes sharp's %s PNG like sharp", async (_name, encode) => {
+    const [width, height] = [700, 500];
+    const png = new Uint8Array(await encode(sharp(photo(width, height, 3), { raw: { width, height, channels: 3 } })).toBuffer());
+    await expectLikeSharp(png, width, height);
+  });
+
+  it.each([
+    [2, 4], [2, 1], [3, 16], [4, 4], [6, 1], [0, 3], [0, 32],
+  ])("refuses colour type %d at %d bits, which PNG does not allow", async (colorType, bitDepth) => {
+    const png = concat(SIGNATURE, ihdr(10, 10, colorType, bitDepth), chunk("IDAT", deflateSync(new Uint8Array(200))), chunk("IEND"));
     expect(canStreamPng(png)).toBe(false);
+    await expect(streamPng(png)).rejects.toThrow();
   });
 
-  it("leaves interlaced PNGs to the fallback decoder", async () => {
-    const png = await sharp(photo(50, 40, 3), { raw: { width: 50, height: 40, channels: 3 } }).png({ progressive: true }).toBuffer();
-    expect(png[28]).toBe(1);
-    expect(canStreamPng(png)).toBe(false);
+  it("refuses an interlace method other than Adam7", async () => {
+    expect(canStreamPng(concat(SIGNATURE, ihdr(10, 10, 2, 8, 2)))).toBe(false);
   });
 
-  it.each([1, 2, 4])("leaves %d-bit PNGs to the fallback decoder", (bitDepth) => {
-    expect(canStreamPng(concat(SIGNATURE, ihdr(10, 10, 3, bitDepth)))).toBe(false);
-    expect(canStreamPng(concat(SIGNATURE, ihdr(10, 10, 0, bitDepth)))).toBe(false);
-  });
-
-  it("leaves PNGs wider than PNG_STREAM_MAX_WIDTH to the fallback decoder, so rows stay small", () => {
-    expect(canStreamPng(concat(SIGNATURE, ihdr(PNG_STREAM_MAX_WIDTH, 1, 6)))).toBe(true);
-    expect(canStreamPng(concat(SIGNATURE, ihdr(PNG_STREAM_MAX_WIDTH + 1, 1, 6)))).toBe(false);
+  it("takes up to PNG_MAX_SIDE pixels each way, so rows and row counts stay bounded", () => {
+    expect(canStreamPng(concat(SIGNATURE, ihdr(PNG_MAX_SIDE, 1, 6)))).toBe(true);
+    expect(canStreamPng(concat(SIGNATURE, ihdr(1, PNG_MAX_SIDE, 6)))).toBe(true);
+    expect(canStreamPng(concat(SIGNATURE, ihdr(PNG_MAX_SIDE + 1, 1, 6)))).toBe(false);
+    expect(canStreamPng(concat(SIGNATURE, ihdr(1, PNG_MAX_SIDE + 1, 6)))).toBe(false);
   });
 
   it("refuses what is not a PNG header", () => {
@@ -310,9 +371,6 @@ describe("streamPng refuses broken PNGs", () => {
     await expect(streamPng(concat(SIGNATURE, ihdr(300, 200, 2), chunk("IDAT", deflateSync(rows)), end))).rejects.toThrow();
   });
 
-  it("a bit depth it does not stream", async () => {
-    await expect(streamPng(concat(SIGNATURE, ihdr(10, 10, 2, 16), chunk("IDAT", new Uint8Array(4)), end))).rejects.toThrow();
-  });
 
   it("tolerates a bad CRC on an ancillary chunk, as the WASM decoder does", async () => {
     const text = chunk("tEXt", new TextEncoder().encode("Comment\0hello"));

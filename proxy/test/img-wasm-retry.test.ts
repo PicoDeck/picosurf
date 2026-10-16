@@ -1,12 +1,10 @@
 // A codec whose instantiation fails is tried again for the next image rather
-// than failing the isolate for good. Codec state is per process, so this file
-// runs on its own (vitest isolates files), and order matters within it.
+// than failing the isolate for good. jSquash's codec state is per process, so
+// this file runs on its own (vitest isolates files).
 
 import { describe, expect, it } from "vitest";
-import sharp from "sharp";
 import { createWasmResizer } from "../src/img-wasm";
 import { jpegInfo } from "../src/imgsize";
-import { photo } from "./helpers/png";
 import { imageFixture } from "./helpers/resizer-contract";
 import { wasmModules } from "./helpers/wasm";
 
@@ -30,17 +28,6 @@ WebAssembly.instantiate = ((source: unknown, imports?: WebAssembly.Imports) => {
 }) as typeof WebAssembly.instantiate;
 
 describe("a codec that fails to instantiate", () => {
-  it("is the WASM PNG decoder, tried again, and a working one then decodes", async () => {
-    const png = new Uint8Array(await sharp(photo(80, 60, 3), { raw: { width: 80, height: 60, channels: 3 } }).png({ progressive: true }).toBuffer());
-    const broken = createWasmResizer({ ...wasmModules(), pngDec: UNLINKABLE });
-    attempts = 0;
-    await expect(broken.resize(png, "png")).rejects.toThrow();
-    await expect(broken.resize(png, "png")).rejects.toThrow();
-    expect(attempts).toBe(2);
-    const out = await createWasmResizer(wasmModules()).resize(png, "png");
-    expect(jpegInfo(out)?.size).toEqual({ width: 80, height: 60 });
-  });
-
   it("is the JPEG encoder, tried again for the next image", async () => {
     const broken = createWasmResizer({ ...wasmModules(), jpegEnc: UNLINKABLE });
     attempts = 0;

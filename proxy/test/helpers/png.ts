@@ -7,12 +7,27 @@ export interface RawPng {
   width: number;
   height: number;
   colorType: ColorType;
-  /** Unfiltered 8-bit samples, row after row. */
-  pixels: Uint8Array;
+  /** Bits a sample: 1, 2, 4, 8 (the default) or 16. */
+  bitDepth?: number;
+  /** Adam7 interlacing. */
+  interlaced?: boolean;
+  /** Unfiltered samples at bitDepth bits, row after row (16-bit ones in a Uint16Array). */
+  pixels: Uint8Array | Uint16Array;
   /** RGB triples, for colour type 3. */
   palette?: Uint8Array;
   trns?: Uint8Array;
 }
+
+/** Each Adam7 pass: first column, first row, column step, row step. */
+export const ADAM7 = [
+  [0, 0, 8, 8],
+  [4, 0, 8, 8],
+  [0, 4, 4, 8],
+  [2, 0, 4, 4],
+  [0, 2, 2, 4],
+  [1, 0, 2, 2],
+  [0, 1, 1, 2],
+] as const;
 
 /** One PNG chunk with its length and CRC. */
 export function chunk(type: string, data: Uint8Array = new Uint8Array(0)): Uint8Array {
@@ -58,36 +73,66 @@ const paeth = (a: number, b: number, c: number) => {
   return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
 };
 
-/** The zlib stream of `p`'s rows, row y filtered with filter type y % 5 so every filter type is used. */
-export function imageData(p: RawPng): Uint8Array {
-  const bpp = CHANNELS[p.colorType];
-  const stride = p.width * bpp;
-  const out = new Uint8Array((stride + 1) * p.height);
-  for (let y = 0; y < p.height; y++) {
-    const filter = y % 5;
-    const row = p.pixels.subarray(y * stride, (y + 1) * stride);
-    const prior = y > 0 ? p.pixels.subarray((y - 1) * stride, y * stride) : new Uint8Array(stride);
-    const o = y * (stride + 1);
-    out[o] = filter;
-    for (let x = 0; x < stride; x++) {
-      const a = x >= bpp ? row[x - bpp] : 0;
-      const b = prior[x];
-      const c = x >= bpp ? prior[x - bpp] : 0;
-      const predictor = [0, a, b, (a + b) >> 1, paeth(a, b, c)][filter];
-      out[o + 1 + x] = (row[x] - predictor) & 0xff;
+/**
+ * The filtered scanlines of `p`, each Adam7 pass in turn when interlaced; the
+ * r-th scanline is filtered with filter type r % 5, so every type is used.
+ */
+export function scanlines(p: RawPng): Uint8Array {
+  const depth = p.bitDepth ?? 8;
+  const channels = CHANNELS[p.colorType];
+  const bits = depth * channels;
+  const bpp = Math.max(1, bits >> 3);
+  const out: Uint8Array[] = [];
+  let r = 0;
+  for (const [x0, y0, dx, dy] of p.interlaced ? ADAM7 : ([[0, 0, 1, 1]] as const)) {
+    const pw = Math.ceil((p.width - x0) / dx);
+    const ph = Math.ceil((p.height - y0) / dy);
+    if (pw <= 0 || ph <= 0) continue;
+    const stride = Math.ceil((pw * bits) / 8);
+    let prior = new Uint8Array(stride);
+    for (let j = 0; j < ph; j++, r++) {
+      const row = new Uint8Array(stride);
+      for (let i = 0; i < pw; i++) {
+        for (let c = 0; c < channels; c++) {
+          const v = p.pixels[((y0 + j * dy) * p.width + x0 + i * dx) * channels + c];
+          const k = i * channels + c;
+          if (depth === 16) {
+            row[k * 2] = v >> 8;
+            row[k * 2 + 1] = v & 0xff;
+          } else if (depth === 8) row[k] = v;
+          else row[(k * depth) >> 3] |= v << (8 - depth - ((k * depth) & 7));
+        }
+      }
+      const filter = r % 5;
+      const line = new Uint8Array(stride + 1);
+      line[0] = filter;
+      for (let x = 0; x < stride; x++) {
+        const a = x >= bpp ? row[x - bpp] : 0;
+        const b = prior[x];
+        const c = x >= bpp ? prior[x - bpp] : 0;
+        const predictor = [0, a, b, (a + b) >> 1, paeth(a, b, c)][filter];
+        line[1 + x] = (row[x] - predictor) & 0xff;
+      }
+      out.push(line);
+      prior = row;
     }
   }
-  return new Uint8Array(deflateSync(out));
+  return concatAll(out);
 }
 
-/** An 8-bit, non-interlaced PNG, with the image data split over IDAT chunks of `idatSize` bytes. */
+/** The zlib stream of `p`'s scanlines. */
+export function imageData(p: RawPng): Uint8Array {
+  return new Uint8Array(deflateSync(scanlines(p)));
+}
+
+/** A PNG of `p`, with the image data split over IDAT chunks of `idatSize` bytes. */
 export function encodePng(p: RawPng, idatSize = 8192): Uint8Array {
   const z = imageData(p);
   const idats: Uint8Array[] = [];
   for (let i = 0; i < z.length; i += idatSize) idats.push(chunk("IDAT", z.subarray(i, i + idatSize)));
   return concatAll([
     SIGNATURE,
-    ihdr(p.width, p.height, p.colorType),
+    ihdr(p.width, p.height, p.colorType, p.bitDepth ?? 8, p.interlaced ? 1 : 0),
     ...(p.palette ? [chunk("PLTE", p.palette)] : []),
     ...(p.trns ? [chunk("tRNS", p.trns)] : []),
   ].concat(idats, [chunk("IEND")]));
@@ -130,4 +175,16 @@ export function photo(width: number, height: number, channels: number, seed = 1)
     }
   }
   return out;
+}
+
+/**
+ * Photo-like samples for any colour type and bit depth: photo()'s 8-bit ones,
+ * quantised for depths under 8 (palette indexes for colour type 3), or with a
+ * varying low byte for 16 (the high byte stays photo()'s).
+ */
+export function samples(width: number, height: number, colorType: ColorType, depth: number, seed = 1): Uint8Array | Uint16Array {
+  const eight = photo(width, height, CHANNELS[colorType], seed);
+  if (depth === 8) return eight;
+  if (depth === 16) return Uint16Array.from(eight, (v, i) => v * 256 + ((i * 37) & 0xff));
+  return Uint8Array.from(eight, (v) => v >> (8 - depth));
 }

@@ -7,7 +7,6 @@
 import mozjpegDec from "@jsquash/jpeg/codec/dec/mozjpeg_dec.js";
 import mozjpegEnc from "@jsquash/jpeg/codec/enc/mozjpeg_enc.js";
 import { defaultOptions as JPEG_ENCODER_DEFAULTS } from "@jsquash/jpeg/meta.js";
-import initPng, { decode as decodePng } from "@jsquash/png/codec/pkg/squoosh_png.js";
 import webpDec from "@jsquash/webp/codec/dec/webp_dec.js";
 import { GifReader } from "omggif";
 import { type Rgba, boxScale } from "./boxscale";
@@ -15,27 +14,7 @@ import type { ImageType } from "./content";
 import { JPEG_QUALITY, type Resizer, fitWithin } from "./img";
 import { type Size, imageSize } from "./imgsize";
 import { Mutex } from "./mutex";
-import { canStreamPng, streamPng } from "./png-stream";
-
-/** Minimal ImageData for runtimes without one (Node, and possibly Workers); jSquash constructs it. */
-class ImageDataShim {
-  readonly colorSpace = "srgb";
-  readonly data: Uint8ClampedArray;
-  readonly width: number;
-  readonly height: number;
-  constructor(a: Uint8ClampedArray | number, b: number, c?: number) {
-    if (typeof a === "number") {
-      this.width = a;
-      this.height = b;
-      this.data = new Uint8ClampedArray(a * b * 4);
-    } else {
-      this.data = a;
-      this.width = b;
-      this.height = c ?? a.length / 4 / b;
-    }
-  }
-}
-(globalThis as { ImageData?: unknown }).ImageData ??= ImageDataShim;
+import { PNG_MAX_SIDE, streamPng } from "./png-stream";
 
 // The Workers pixel caps, per decoder; a Worker isolate has 128 MB in all.
 // The figures are RSS growth of a fresh Node process from
@@ -63,17 +42,14 @@ export const JPEG_MAX_PIXELS = 8_000_000;
 export const PNG_STREAM_MAX_PIXELS = 100_000_000;
 
 /**
- * Everything else decodes whole: PNGs that cannot stream (16-bit, under 8
- * bits, interlaced) in the WASM PNG decoder, whose heap keeps its high-water
- * mark (24 MiB after a 2 MP PNG; 47 MiB growth cold), WebP in a fresh WASM
- * decoder, and GIF in JS (omggif).
+ * WebP and GIF: WebP decodes whole in its long-lived WASM decoder, whose
+ * heap keeps its high-water mark, GIF in JS (omggif).
  */
 export const WASM_MAX_PIXELS = 2_000_000;
 
 export interface WasmModules {
   jpegDec: WebAssembly.Module;
   jpegEnc: WebAssembly.Module;
-  pngDec: WebAssembly.Module;
   webpDec: WebAssembly.Module;
 }
 
@@ -135,35 +111,21 @@ interface JpegEncoder {
 }
 const ENCODE = { ...JPEG_ENCODER_DEFAULTS, quality: JPEG_QUALITY, baseline: true, progressive: false };
 
-/** Caches `init()`'s promise, but not a rejected one, so a failed init is tried again for the next image. */
-function once(init: () => Promise<unknown>): () => Promise<unknown> {
-  let ready: Promise<unknown> | null = null;
-  return () =>
-    (ready ??= init().catch((e) => {
-      ready = null;
-      throw e;
-    }));
-}
-
 export function createWasmResizer(mods: WasmModules): Resizer {
-  // Made on first use. The encoder only ever sees 320x320 images, and the
-  // WASM PNG decoder only PNGs that cannot stream, under WASM_MAX_PIXELS. The
-  // PNG decoder is wasm-bindgen's, one per isolate; its init can be retried.
+  // Made on first use; the encoder only ever sees 320x320 images.
   const encoder = new Emscripten<JpegEncoder>(mozjpegEnc, mods.jpegEnc);
-  const pngDecoder = once(() => initPng(mods.pngDec));
   const decoders: Decoders = {
     jpeg: new HeapDecoder(mozjpegDec, mods.jpegDec, false), // false: ignore EXIF orientation, as jSquash does
     webp: new HeapDecoder(webpDec, mods.webpDec),
-    async png(bytes) {
-      await pngDecoder();
-      return decodePng(bytes);
-    },
   };
 
   return {
     maxPixels(bytes, type) {
       if (type === "jpeg") return JPEG_MAX_PIXELS;
-      if (type === "png" && canStreamPng(bytes)) return PNG_STREAM_MAX_PIXELS;
+      if (type === "png") {
+        const size = imageSize(bytes, "png");
+        return size && Math.max(size.width, size.height) > PNG_MAX_SIDE ? 0 : PNG_STREAM_MAX_PIXELS;
+      }
       return WASM_MAX_PIXELS;
     },
     resize: (bytes, type) =>
@@ -183,7 +145,6 @@ export function createWasmResizer(mods: WasmModules): Resizer {
 interface Decoders {
   jpeg: HeapDecoder;
   webp: HeapDecoder;
-  png(bytes: Uint8Array): Promise<ImageData>;
 }
 
 const RealUint8ClampedArray = Uint8ClampedArray;
@@ -266,6 +227,7 @@ export class HeapDecoder {
   /** Runs an instance's first decode with PixelSink and DecodedImage in place of the globals. */
   private bind<T>(decode: () => T): T {
     const g = globalThis as Record<string, unknown>;
+    const hadImageData = "ImageData" in g;
     const saved = [g.Uint8ClampedArray, g.ImageData];
     g.Uint8ClampedArray = PixelSink;
     g.ImageData = DecodedImage;
@@ -275,40 +237,35 @@ export class HeapDecoder {
       return image;
     } finally {
       g.Uint8ClampedArray = saved[0];
-      g.ImageData = saved[1];
+      if (hadImageData) g.ImageData = saved[1];
+      else delete g.ImageData;
     }
   }
 }
 
-/** Decodes and scales to fit 320x320: 8-bit PNGs stream, JPEG and WebP scale in their decoder, the rest decode whole first. */
+/** Decodes and scales to fit 320x320: PNGs stream, JPEG and WebP scale in their decoder, GIFs decode whole first. */
 async function decodeScaled(bytes: Uint8Array, type: ImageType, decoders: Decoders): Promise<Rgba> {
-  if (type === "png" && canStreamPng(bytes)) return streamPng(bytes);
-  if (type === "jpeg" || type === "webp") {
-    const size = imageSize(bytes, type);
-    if (!size) throw new Error("Could not read the image size");
-    return decoders[type].decode(bytes, size);
+  if (type === "png") return streamPng(bytes);
+  if (type === "gif") {
+    const image = decodeGif(bytes);
+    return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height));
   }
-  const image = await decode(bytes, type, decoders);
-  return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height));
+  const size = imageSize(bytes, type);
+  if (!size) throw new Error("Could not read the image size");
+  return decoders[type].decode(bytes, size);
 }
 
-/** Decodes a PNG that cannot stream, or a GIF, whole. */
-async function decode(bytes: Uint8Array, type: "png" | "gif", decoders: Decoders): Promise<ImageData> {
-  switch (type) {
-    case "png":
-      return decoders.png(bytes);
-    case "gif": {
-      const reader = new GifReader(bytes);
-      // omggif allocates for the frame descriptor's size, which the handler's
-      // check of the logical screen size never saw.
-      const frame = reader.frameInfo(0);
-      if (frame.x + frame.width > reader.width || frame.y + frame.height > reader.height) {
-        throw new Error("GIF frame lies outside the logical screen");
-      }
-      if (reader.width * reader.height > WASM_MAX_PIXELS) throw new Error("GIF is too large");
-      const data = new Uint8ClampedArray(reader.width * reader.height * 4);
-      reader.decodeAndBlitFrameRGBA(0, data);
-      return new ImageData(data, reader.width, reader.height);
-    }
+/** The first frame of a GIF, whole. */
+function decodeGif(bytes: Uint8Array): Rgba {
+  const reader = new GifReader(bytes);
+  // omggif allocates for the frame descriptor's size, which the handler's
+  // check of the logical screen size never saw.
+  const frame = reader.frameInfo(0);
+  if (frame.x + frame.width > reader.width || frame.y + frame.height > reader.height) {
+    throw new Error("GIF frame lies outside the logical screen");
   }
+  if (reader.width * reader.height > WASM_MAX_PIXELS) throw new Error("GIF is too large");
+  const data = new Uint8ClampedArray(reader.width * reader.height * 4);
+  reader.decodeAndBlitFrameRGBA(0, data);
+  return { data, width: reader.width, height: reader.height };
 }

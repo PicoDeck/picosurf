@@ -6,7 +6,7 @@ export async function sharpReference(img: Sharp, size: Size): Promise<Uint8Array
   const { data, info } = await img
     .flatten({ background: "#ffffff" })
     .resize(size.width, size.height, { fit: "fill" })
-    .raw()
+    .raw({ depth: "uchar" })
     .toBuffer({ resolveWithObject: true });
   if (info.channels !== 3) throw new Error(`expected RGB from sharp, got ${info.channels} channels`);
   return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);

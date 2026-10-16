@@ -35,7 +35,6 @@ const PROXY = fileURLToPath(new URL("..", import.meta.url));
 const CODECS = {
   jpegDec: "@jsquash/jpeg/codec/dec/mozjpeg_dec.wasm",
   jpegEnc: "@jsquash/jpeg/codec/enc/mozjpeg_enc.wasm",
-  pngDec: "@jsquash/png/codec/pkg/squoosh_png_bg.wasm",
   webpDec: "@jsquash/webp/codec/dec/webp_dec.wasm",
 };
 
@@ -93,7 +92,7 @@ async function main(): Promise<void> {
       const all = [
         await images.jpeg("8 MP noisiest JPEG", ...dims(8), "noise"),
         await images.webp("2 MP WebP (lossless noise)", ...dims(2)),
-        await images.png("2 MP interlaced PNG (WASM)", "interlaced", ...dims(2)),
+        await images.png("2 MP interlaced PNG", "interlaced", ...dims(2)),
         await images.png("12 MP photo PNG (streams)", "photo", ...dims(12)),
         await images.gif("2 MP GIF", ...dims(2)),
       ];
