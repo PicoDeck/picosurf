@@ -1,4 +1,4 @@
-import { constants, deflateRawSync, deflateSync } from "node:zlib";
+import { constants, deflateRawSync, deflateSync, inflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { INFLATE_FLUSH, inflate } from "../src/inflate";
 
@@ -165,3 +165,168 @@ describe("inflate", () => {
     }
   });
 });
+
+/** inflate()'s result for a raw deflate stream (given a zlib header): the output, or "error". */
+function mine(raw: Uint8Array): Uint8Array | "error" {
+  try {
+    return run(whole(Uint8Array.from([0x78, 0x9c, ...raw]))).out;
+  } catch {
+    return "error";
+  }
+}
+
+/** zlib's: the output, or "error". */
+function theirs(raw: Uint8Array): Uint8Array | "error" {
+  try {
+    return new Uint8Array(inflateRawSync(raw));
+  } catch {
+    return "error";
+  }
+}
+
+/** Writes deflate's bit fields (LSB first) and Huffman codes (MSB first). */
+class Bits {
+  private readonly out: number[] = [];
+  private acc = 0;
+  private n = 0;
+  field(value: number, width: number): this {
+    for (let b = 0; b < width; b++) this.bit((value >> b) & 1);
+    return this;
+  }
+  code(code: number, length: number): this {
+    for (let b = length - 1; b >= 0; b--) this.bit((code >> b) & 1);
+    return this;
+  }
+  private bit(v: number): void {
+    this.acc |= v << this.n;
+    if (++this.n === 8) {
+      this.out.push(this.acc);
+      this.acc = this.n = 0;
+    }
+  }
+  bytes(): Uint8Array {
+    return Uint8Array.from(this.n ? [...this.out, this.acc] : this.out);
+  }
+}
+
+const CL_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+
+/**
+ * A final dynamic block. `cl` gives the code-length code (symbol -> length),
+ * `lengths` the literal/length lengths then the distance lengths (written with
+ * code-length symbols 0-15 and 18 for runs of zeros), `data` the codes after.
+ */
+function dynamic(cl: Record<number, number>, lit: Record<number, number>, ndist: number, dist: Record<number, number>, data: (w: Bits, lit: Map<number, [number, number]>) => void): Uint8Array {
+  const canonical = (lens: Record<number, number>) => {
+    const syms = Object.entries(lens).map(([s, l]) => [Number(s), l] as const).filter(([, l]) => l > 0).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+    const codes = new Map<number, [number, number]>();
+    let code = 0;
+    let len = 0;
+    for (const [s, l] of syms) {
+      code <<= l - len;
+      len = l;
+      codes.set(s, [code++, l]);
+    }
+    return codes;
+  };
+  const w = new Bits().field(1, 1).field(2, 2).field(0, 5).field(ndist - 1, 5).field(15, 4);
+  for (const s of CL_ORDER) w.field(cl[s] ?? 0, 3);
+  const clCodes = canonical(cl);
+  const sym = (s: number) => {
+    const c = clCodes.get(s);
+    if (!c) throw new Error(`no code-length code for ${s}`);
+    w.code(c[0], c[1]);
+  };
+  const all = [...Array.from({ length: 257 }, (_, i) => lit[i] ?? 0), ...Array.from({ length: ndist }, (_, i) => dist[i] ?? 0)];
+  for (let i = 0; i < all.length; ) {
+    let run = 0;
+    while (all[i + run] === 0 && run < 138 && i + run < all.length) run++;
+    if (run >= 11) {
+      sym(18);
+      w.field(run - 11, 7);
+      i += run;
+    } else {
+      sym(all[i]);
+      i++;
+    }
+  }
+  data(w, canonical(lit));
+  return w.bytes();
+}
+
+const A_THEN_END = (w: Bits, lit: Map<number, [number, number]>) => {
+  for (const s of [65, 256]) {
+    const c = lit.get(s);
+    if (c) w.code(c[0], c[1]);
+  }
+};
+
+describe("Huffman codes, as zlib takes them", () => {
+  it.each([
+    ["an incomplete literal/length code", dynamic({ 0: 2, 1: 2, 2: 2, 18: 2 }, { 65: 2, 256: 2 }, 1, { 0: 1 }, A_THEN_END), "error"],
+    ["an incomplete code-length code", dynamic({ 0: 2, 1: 2, 18: 2 }, { 65: 1, 256: 1 }, 1, { 0: 1 }, A_THEN_END), "error"],
+    ["a single distance code of length 1 (incomplete, as zlib allows)", dynamic({ 18: 1, 0: 2, 1: 2 }, { 65: 1, 256: 1 }, 1, { 0: 1 }, A_THEN_END), "A"],
+    ["no distance codes at all, in a block with no matches", dynamic({ 18: 1, 0: 2, 1: 2 }, { 65: 1, 256: 1 }, 1, {}, A_THEN_END), "A"],
+  ])("%s", (_name, raw, expected) => {
+    const want = expected === "error" ? "error" : new TextEncoder().encode(expected);
+    expect(theirs(raw)).toEqual(want);
+    expect(mine(raw)).toEqual(want);
+  });
+});
+
+describe("inflate against zlib", () => {
+  it("agrees on 6000 seeded streams, intact and corrupted: the same bytes, or both refuse", () => {
+    let s = 2026;
+    const rand = () => {
+      s ^= s << 13;
+      s ^= s >>> 17;
+      s ^= s << 5;
+      return (s >>> 0) / 2 ** 32;
+    };
+    const ri = (n: number) => Math.floor(rand() * n);
+    const data = (): Uint8Array => {
+      const n = [0, 1, 7, 100, 600, 2500][ri(6)] + ri(100);
+      const out = new Uint8Array(n);
+      const kind = ri(5);
+      for (let i = 0; i < n; ) {
+        if (kind === 0) out[i++] = ri(256);
+        else if (kind === 1) out[i++] = 97 + ri(3);
+        else if (kind === 2) for (let v = ri(256), r = 1 + ri(300); r > 0 && i < n; r--) out[i++] = v;
+        else if (kind === 3 && i > 4 && rand() < 0.4) for (let back = 1 + ri(i), r = 3 + ri(258); r > 0 && i < n; r--, i++) out[i] = out[i - back];
+        else out[i++] = (i * 7 + ri(4)) & 0xff;
+      }
+      return out;
+    };
+    const mutate = (raw: Uint8Array): Uint8Array => {
+      const m = raw.slice();
+      switch (ri(6)) {
+        case 0:
+        case 1:
+          return m;
+        case 2:
+          for (let k = 1 + ri(3); k > 0 && m.length; k--) m[ri(m.length)] ^= 1 << ri(8);
+          return m;
+        case 3:
+          return m.subarray(0, ri(m.length + 1));
+        case 4:
+          for (let at = ri(m.length + 1), k = 1 + ri(8); k > 0 && at < m.length; k--, at++) m[at] = ri(256);
+          return m;
+        default:
+          return Uint8Array.from([...m, ...Array.from({ length: 1 + ri(20) }, () => ri(256))]);
+      }
+    };
+    const disagreements: string[] = [];
+    let refused = 0;
+    for (let k = 0; k < 6000; k++) {
+      const options = { level: ri(10), strategy: ri(5), memLevel: 1 + ri(9) };
+      const raw = mutate(new Uint8Array(deflateRawSync(data(), options)));
+      const [a, b] = [mine(raw), theirs(raw)];
+      if (b === "error") refused++;
+      const same = a === "error" || b === "error" ? a === b : a.length === b.length && a.every((v, i) => v === b[i]);
+      if (!same) disagreements.push(`#${k}: inflate ${a === "error" ? a : `${a.length} bytes`}, zlib ${b === "error" ? b : `${b.length} bytes`}`);
+    }
+    expect(disagreements).toEqual([]);
+    expect(refused).toBeGreaterThan(600); // the corruption did reach the error paths
+  });
+});
+

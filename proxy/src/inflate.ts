@@ -49,17 +49,25 @@ class Code {
     this.symbols = new Uint16Array(size);
   }
 
-  /** Builds the code from `n` code lengths starting at `lengths[at]`. */
-  build(lengths: Uint8Array, at: number, n: number): void {
+  /**
+   * Builds the code from `n` code lengths starting at `lengths[at]`, refusing
+   * what zlib refuses: an over-subscribed code, or an incomplete one, except a
+   * literal/length or distance code of one 1-bit code (`single` allows it).
+   * A code with no codes at all builds, and fails only if a block uses it.
+   */
+  build(lengths: Uint8Array, at: number, n: number, single = true): void {
     const { root, count, symbols, offsets } = this;
     count.fill(0);
     for (let i = 0; i < n; i++) count[lengths[at + i]]++;
     count[0] = 0;
     let left = 1;
+    let longest = 0;
     for (let len = 1; len <= MAXBITS; len++) {
       left = (left << 1) - count[len];
       if (left < 0) throw new Error("zlib data is corrupt: over-subscribed Huffman code");
+      if (count[len]) longest = len;
     }
+    if (left > 0 && longest > 0 && !(single && longest === 1)) throw new Error("zlib data is corrupt: incomplete Huffman code");
     offsets[1] = 0;
     for (let len = 1; len <= MAXBITS; len++) offsets[len + 1] = offsets[len] + count[len];
     for (let sym = 0; sym < n; sym++) {
@@ -227,7 +235,7 @@ class Inflater {
     const lengths = this.lengths;
     lengths.fill(0, 0, 19);
     for (let i = 0; i < nlen; i++) lengths[CLORDER[i]] = this.bits(3);
-    this.lengthCode.build(lengths, 0, 19);
+    this.lengthCode.build(lengths, 0, 19, false);
     for (let i = 0; i < nlit + ndist; ) {
       const sym = this.symbol(this.lengthCode);
       if (sym < 16) {
