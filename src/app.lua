@@ -40,13 +40,14 @@ function App.new(pc, appId, appDir)
     return self
 end
 
+-- Returns whether the font in use changed (see loadFont).
 function App:loadConfig()
     local c = self.pc.config
     self.cfg = {
         proxyUrl = c.get("proxy_url") or "", token = c.get("token") or "", font = fonts.normalize(c.get("font")),
         images = c.get("images") == "inline" and "inline" or "links",
     }
-    self:loadFont()
+    local fontChanged = self:loadFont()
     self.oldProxyWarned = nil -- a changed setting, say a newer proxy: pictures are tried again
     self:cancelRefresh() -- before closeAll, which would fail its requests
     if self.pool then self.pool:closeAll() end
@@ -55,14 +56,17 @@ function App:loadConfig()
         self.base, self.baseErr = url.parseBase(self.cfg.proxyUrl)
         if self.base then self.pool = http.pool(self.pc.network, self.base) end
     end
+    return fontChanged
 end
 
 -- The reading font (proportional fonts spec 3, 4): loaded again when the
--- setting changed, or when the last load fell back to Scientifica.
+-- setting changed, or when the last load fell back to Scientifica. Returns
+-- whether the font in use changed: a fallen-back font can load on any saved
+-- setting's retry, not just the Font row's.
 function App:loadFont()
-    local want = self.cfg.font
-    if self.fontSpec and self.fontSpec.name == want then return end
-    if self.fontSpec then fonts.unload(self.disp, self.fontSpec) end
+    local want, old = self.cfg.font, self.fontSpec
+    if old and old.name == want then return false end
+    if old then fonts.unload(self.disp, old) end
     local spec, err = fonts.load(self.disp, self.appDir, want)
     self.fontSpec = spec
     self.theme = theme.new(self.disp, spec)
@@ -71,12 +75,15 @@ function App:loadFont()
         self:log("error", "-", err)
         self:toast("Font unavailable - using Scientifica", self.ui.TOAST_WARNING)
     end
+    return not old or old.name ~= spec.name
 end
 
+-- Saves a setting and applies it; when that changed the font, the page on
+-- screen is laid out again in it.
 function App:saveConfig(key, value)
     self.pc.config.set(key, value)
     self.pc.config.save()
-    self:loadConfig()
+    if self:loadConfig() then self:relayout() end
 end
 
 -- Settings -> Images (inline images spec 5.6): saves the choice and applies it

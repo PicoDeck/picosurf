@@ -2,6 +2,7 @@ local T = require("tests.t")
 local fakepc = require("tests.fakepc")
 local App = require("src.app")
 local layout = require("src.layout")
+local theme = require("src.theme")
 
 local function lines(from, to)
     local out = {}
@@ -34,6 +35,7 @@ local ROUTES = {
         body = table.concat({ "# Pics", "intro", "=> https://img.test/1.jpg [IMG] one", lines(1, 40) }, "\n"),
     },
     ["https://b.test/"] = { title = "B", body = "# B\n\nBack page.\n" },
+    ["https://wide.test/"] = { title = "W", body = "# Wide\n" .. string.rep("mmmm wwww ", 40) },
     ["https://img.test/p.jpg"] = jpeg(200, 120),
     ["https://img.test/1.jpg"] = jpeg(200, 120), -- 10 rows of 13 px, 9 of 14 px
 }
@@ -91,12 +93,16 @@ local function boxRows(app, k)
     return link.last - link.first + 1
 end
 
--- Settings, then the Font row (the third): steps to the next font; Esc back.
-local function nextFont(app, F)
+-- Settings, then Enter on row n; Esc back.
+local function setting(app, F, n)
     F.menu["Settings"](); steps(app, 1)
-    F.press("down"); F.press("down"); F.press("enter"); steps(app, 1)
+    for _ = 2, n do F.press("down") end
+    F.press("enter"); steps(app, 1)
     F.press("esc"); steps(app, 1)
 end
+
+-- The Font row (the third) steps to the next font.
+local function nextFont(app, F) setting(app, F, 3) end
 
 return {
     proportional_pages_indent_and_keep_code_monospace = function() -- Review Focus 1
@@ -136,7 +142,7 @@ return {
     the_default_font_is_sans = function()
         local app, F = boot()
         T.eq(app.cfg.font, "sans"); T.eq(app.theme.fontName, "sans"); T.eq(app.theme.rowH, 14)
-        T.eq(require("src.theme").rows(app.theme), 20)
+        T.eq(theme.rows(app.theme), 20)
         T.ok(F.hasLog("picosurf: font sans"))
     end,
     settings_step_through_the_four_fonts = function()
@@ -188,5 +194,15 @@ return {
         T.eq(app.page.url, "https://pics.test/")
         T.eq(app.page.L.line[app.page.ps.top], line, "the same line at the top")
         T.eq(boxRows(app, 1), 9, "the box in Sans rows from the saved height")
+    end,
+    a_font_loaded_on_a_retry_lays_the_page_out_again = function() -- final review F1
+        local app, F = boot({ font = "sans", missing = "/apps/picosurf/fonts/sans.pfn" })
+        go(app, F, "wide.test/")
+        T.eq(app.theme.fontName, "scientifica")
+        F.missingFonts["/apps/picosurf/fonts/sans.pfn"] = nil
+        setting(app, F, 4) -- Images: Inline. Any saved setting tries the font again.
+        T.eq(app.theme.fontName, "sans")
+        T.eq(app.page.ps.visible, theme.rows(app.theme), "20 rows of 14 px")
+        assertWithinPage(F)
     end,
 }

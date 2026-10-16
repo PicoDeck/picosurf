@@ -72,8 +72,7 @@ function S.key(app, action)
             app.input.clearState()
             if v and trim(v) ~= "" then app:saveConfig("token", trim(v)) end
         elseif item == "font" then
-            app:saveConfig("font", fonts.nextChoice(app.cfg.font))
-            app:relayout()
+            app:saveConfig("font", fonts.nextChoice(app.cfg.font)) -- lays the page out again
         elseif item == "images" then
             app:setImages(app.cfg.images == "inline" and "links" or "inline")
         else
