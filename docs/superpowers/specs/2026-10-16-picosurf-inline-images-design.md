@@ -30,8 +30,9 @@ An option to see a page's pictures in the text as you read, not only as
   or below it load one at a time. The order is: on screen (top to bottom),
   then below (nearest first), then above (nearest first). Nothing loads
   further away than that until you scroll.
-- **The box:** when an image arrives, its line becomes a box `ceil((h + 4) / 13)`
-  rows tall, at most 10 rows (130 px). The proxy has scaled the image to fit
+- **The box:** when an image arrives, its line becomes a box
+  `ceil((h + 4) / rowH)` rows tall (rowH is the font's row height, 13 or 14
+  px), at most 10 rows. The proxy has scaled the image to fit
   within 312×126 and never enlarges it. It is centred across the screen, 2 px
   below the top of the box.
 - **The view stays put:** when the box starts above the first visible row,
@@ -95,7 +96,7 @@ GET /v1/get?url=<image URL>&fit=<W>x<H>
 | File | Change |
 |---|---|
 | `src/inline.lua` (new, pure) | Per-page inline image state and policy: which image to fetch next, which to decode, which decoded images to drop, the compressed-bytes cache, and box rows from an image height |
-| `src/layout.lua` | Row style `BOX`. `build(lines, cols, boxes)` lays image link `k` out as `boxes[k]` box rows. `setBox(L, k, rows)` turns link `k`'s rows into `rows` box rows in place and returns the change in the row count |
+| `src/layout.lua` | Row style `BOX`. `build(lines, m, boxes)` takes the font metrics `m` and lays image link `k` out as `boxRows(boxes[k])` box rows, where `boxes[k]` is a picture height in px. `setBox(L, k, rows)` turns link `k`'s rows into `rows` box rows in place and returns the change in the row count |
 | `src/pagestate.lua` | `ps:shift(row, delta)`: after `delta` rows were added (or removed) at `row`, keeps the view on the same content and keeps a link selected |
 | `src/proxy.lua` | `getPath(base, target, as, fit)` appends `&fit=WxH` |
 | `src/app.lua` | Config `images`; `page.inline` on pages; `App:stepImages()` and the result handler; boxes carried by Back, Reload and font changes; `App:setImages(mode)` |
@@ -103,8 +104,9 @@ GET /v1/get?url=<image URL>&fit=<W>x<H>
 | `src/screens/settings.lua` | The Images item |
 | `tests/fakepc.lua` | The image fake reads its size from the bytes and records draws, with their source rectangles |
 
-Rows stay 13 px with both fonts, so a box has the same number of rows in
-either font.
+Row height depends on the font (13 px, or 14 px with Sans), so a box's
+row count can differ between fonts. Boxes therefore store the picture
+height in px, and the rows are recomputed from it for the current font.
 
 ## 5. App behaviour
 
@@ -195,7 +197,7 @@ It is applied in `pump`. It is ignored if `page` is no longer `app.page`,
 - **The clip band** is from `th.top` (y 21) to `th.top + visible * rowH`: the
   rows between the title bar and the footer.
 - **Box rows** draw no text. The box is drawn once, at its first visible row:
-  - Its band starts at `rowY(first) - 1` and is `rows * 13` tall.
+  - Its band starts at `rowY(first) - 1` and is `rows * rowH` tall.
   - When the box is selected, its band is filled with `selBg`, clipped to the
     clip band.
   - **With the picture in memory:** `img:draw(x, y, false, src)`, where
@@ -208,8 +210,9 @@ It is applied in `pump`. It is ignored if `page` is no longer `app.page`,
 ### 5.6 Back, Reload, font change and the setting
 
 - **Back and Reload:** back entries and Reload's `restore` carry a copy of
-  `boxes`. The page is rebuilt with the same rows, so the saved `top` still
-  points at the same content. Pictures reload into their boxes without
+  `boxes`, which hold picture heights in px. The page is rebuilt with the
+  same font, so the same rows come out and the saved `top` still points at
+  the same content. Pictures reload into their boxes without
   moving anything.
   - If the page changed meanwhile and an image has another size, its box
     resizes when it loads, as in 5.3.
@@ -217,7 +220,8 @@ It is applied in `pump`. It is ignored if `page` is no longer `app.page`,
   - Back entries and Reload's `restore` also carry the source line at the
     top. When Images was switched to Links since, the saved `top` counted
     boxes that are gone, so that line goes back to the top instead.
-- **Font change:** `relayout` passes `page.inline.boxes` to `build`.
+- **Font change:** `relayout` passes `page.inline.boxes` to `build`, which
+  recomputes each box's rows from its height and the new font's row height.
 - **The setting:** `config.json` key `images`, `"links"` (the default) or
   `"inline"`. Settings shows `Images: Links` or `Images: Inline`, and Enter
   switches it. `App:setImages(mode)` saves it, then for the current page:
@@ -232,7 +236,7 @@ It is applied in `pump`. It is ignored if `page` is no longer `app.page`,
 
 | What | Bound |
 |---|---|
-| Decoded pictures | Only those overlapping the window, which is three screens of rows (63). A picture costs `w × h × 2` bytes, at most 312 × 126 × 2 = 79 KB. A picture is never larger than its box (`rows × 13` px tall, 312 px wide), so the boxes inside the window hold at most 63 × 13 × 312 × 2 bytes ≈ 0.5 MB of pictures. The two boxes that can cross the window's edges add at most 160 KB, so 0.67 MB in all. |
+| Decoded pictures | Only those overlapping the window, which is three screens of rows (63). A picture costs `w × h × 2` bytes, at most 312 × 126 × 2 = 79 KB. A picture is never larger than its box (`rows × rowH` px tall, 312 px wide), so the boxes inside the window hold at most 63 × 14 × 312 × 2 bytes ≈ 0.5 MB of pictures. The two boxes that can cross the window's edges add at most 160 KB, so 0.67 MB in all. |
 | Compressed bytes | 512 KB per page, least recently used dropped. That is dozens of pictures of 312×126 at quality 75 (to be measured: section 8). |
 | Requests | One image request at a time, over the proxy keep-alive connection pages already use. None while a page is loading, because the loading screen replaces the page screen and its `leave` cancels the request. |
 | Decoding | At most one picture per step, each at most 312×126. |

@@ -140,7 +140,11 @@ def test_default_font_is_sans(picosurf):
     # Row 3 ("See B [1].") on 14 px rows starts at y 22 + 2 * 14 = 50.
     lit = sum(1 for x in range(4, 120) for y in range(50, 63) if sum(img.getpixel((x, y))) > 300)
     assert lit > 20, lit
-    errors = [l["text"] for l in sim.get_log_lines() if "/fonts/" in l.get("text", "")]
+    errors = [
+        l["text"]
+        for l in sim.get_log_lines()
+        if "/fonts/" in l.get("text", "") or "picosurf: error" in l.get("text", "")
+    ]
     assert not errors, errors
     no_lua_errors(sim)
 

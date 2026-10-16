@@ -352,14 +352,16 @@ Deployment:
 - **Wrapping:** `layout.lua` wraps once per page load or font change, by
   measured width: each character's advance is measured once when the font
   loads, and headings use the bold font's advances. Preformatted lines stay
-  monospace (Scientifica under Sans and Serif) and are cut by column count. Rows are stored as parallel integer arrays (source line, start
-  byte, end byte, style, link index), not copied strings.
+  monospace (Scientifica under Sans and Serif) and are cut by column count.
+  Rows are stored as parallel integer arrays (source line, start byte, end
+  byte, style, link index), not copied strings.
 - **Drawing:** redraw only when state changes. The idle loop calls
   `input.update()` and sleeps about 16 ms.
 - **Inline pictures** (Images: Inline): an image link's rows become a box of
-  `ceil((h + 4) / rowH)` rows (rowH: the font's row height), at most 10, once its picture arrives; pictures
-  within a screen of the view load one at a time. See the inline images
-  design (`2026-10-16-picosurf-inline-images-design.md`), sections 2 and 5.
+  `ceil((h + 4) / rowH)` rows (rowH: the font's row height), at most 10,
+  once its picture arrives; pictures within a screen of the view load one at
+  a time. See the inline images design
+  (`2026-10-16-picosurf-inline-images-design.md`), sections 2 and 5.
 
 ### 6.4 Keys
 
