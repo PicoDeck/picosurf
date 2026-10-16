@@ -53,6 +53,10 @@ export function resizerContract(name: string, make: () => Promise<Resizer>): voi
       const info = jpegInfo(out);
       expect(info?.sof).toBe(0xc0);
       expect(info?.size).toEqual({ width, height });
+      // Measured: each fixture comes out at 400 B with sharp and 402 B with wasm
+      // (small.png: 406 and 408 B). The fixtures are flat colour, so that's a
+      // floor; the noisy photo() of helpers/png.ts at 800x600 (a quality 80 JPEG)
+      // comes out at 1,796 and 1,759 B.
       expect(out.length).toBeLessThan(32 * 1024); // the app keeps 512 KB of these per page
     });
 

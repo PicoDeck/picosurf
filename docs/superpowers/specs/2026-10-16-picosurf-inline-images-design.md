@@ -161,8 +161,13 @@ It is applied in `pump`. It is ignored if `page` is no longer `app.page`,
   1. Keep the bytes and decode them under `pcall`.
   2. If the picture is larger than 312×126, the proxy ignored `fit` because
      it predates this change. Treat it as failed and log it, and show the
-     toast `Inline images need a newer proxy` once per app run.
-  3. Otherwise set `w, h` and `rows = inline.rows(h)`.
+     toast `Inline images need a newer proxy`. No more pictures are fetched
+     until a setting changes (say, the proxy URL), when the toast can show
+     again.
+  3. Otherwise set `w, h` and `rows = inline.rows(h)`. The pixels live
+     outside the Lua heap, freed only by the picture's finaliser, so the
+     collector is told about them as if Lua had allocated them:
+     `collectgarbage("step", w * h * 2 // 1024)`.
   4. For each image link with this URL whose rows differ, call
      `delta = layout.setBox(L, k, rows)` and then
      `ps:shift(L.links[k].first, delta)`, and set `boxes[k] = rows`.
@@ -209,12 +214,16 @@ It is applied in `pump`. It is ignored if `page` is no longer `app.page`,
   - If the page changed meanwhile and an image has another size, its box
     resizes when it loads, as in 5.3.
   - In Links mode boxes are neither saved nor used.
+  - Back entries and Reload's `restore` also carry the source line at the
+    top. When Images was switched to Links since, the saved `top` counted
+    boxes that are gone, so that line goes back to the top instead.
 - **Font change:** `relayout` passes `page.inline.boxes` to `build`.
 - **The setting:** `config.json` key `images`, `"links"` (the default) or
   `"inline"`. Settings shows `Images: Links` or `Images: Inline`, and Enter
   switches it. `App:setImages(mode)` saves it, then for the current page:
-  - **Links:** cancel the image in flight, set `page.inline = nil`, and lay
-    the page out again without boxes.
+  - **Links:** cancel the image in flight, set `page.inline = nil`, lay
+    the page out again without boxes, and run a full collection to free the
+    dropped pictures' pixels.
   - **Inline:** set `page.inline = inline.new({})`; loading starts when the
     page screen is back.
 - **Feed lists** get no `page.inline`.
@@ -239,7 +248,7 @@ The Lua heap is about 6 MB. The full-screen view adds up to 200 KB on top.
 | No WiFi | Nothing is fetched until it's back |
 | Pool busy | Tried again next step |
 | Decode fails under `pcall` (corrupt, out of memory) | Stays a link line (a restored box keeps its outline); logged |
-| Picture larger than 312×126 | Failed; logged; toast `Inline images need a newer proxy` once per run |
+| Picture larger than 312×126 | Failed; logged; toast `Inline images need a newer proxy`; no more pictures are fetched until a setting changes |
 | Image URL that isn't `http`/`https` | Stays a link line |
 | Leaving the page screen (any route) | The request in flight is cancelled and its entry removed, so it is fetched again on return |
 

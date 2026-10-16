@@ -23,7 +23,6 @@ Run this on a real PicoCalc with PicoDeck 0.5.0 or later, against the deployed W
 19. Press Esc on 20 loads in a row, then check the heap in the dev log hasn't grown (HTTP callbacks are released): before ______, after ______.
 20. Leave it idle for more than 5 minutes, then follow a link. The stale keep-alive connection is retried and the page loads.
 21. With WiFi off, open a feed last fetched more than 30 minutes ago. It shows the saved items and the toast "Offline - showing saved items".
-
-22. Settings → Images: Inline. Open an article with 10 or more images. Time until the first picture shows: ______ s. Scroll to the end and back with Right and Left: pictures appear in place, the text you're reading doesn't jump when a picture above it loads, and keys stay responsive. Heap free in the dev log at the end: ______ (above 1 MB). Enter on a picture opens it full screen.
+22. Settings → Images: Inline. Open an article with 10 or more images. Time until the first picture shows: ______ s. Scroll to the end and back with Right and Left: pictures appear in place, the text you're reading doesn't jump when a picture above it loads, and keys stay responsive. Lowest Lua heap free in the dev log while scrolling, not only at the end: ______ (above 1 MB). On a long page, the worst hitch when a picture arrives: ______ ms. Enter on a picture opens it full screen.
 
 Report any missed target as-is; don't round it.

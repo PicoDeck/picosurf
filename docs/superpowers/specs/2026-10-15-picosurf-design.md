@@ -380,11 +380,14 @@ as below.
 System menu items (`sys.addMenuItem`): Reload, Edit URL (pre-filled when the
 URL is 128 characters or less, otherwise a toast), Mark all read (in a feed),
 Settings.
-An inline picture's box is one link: Up/Down, Tab and Enter treat it like a link line, and Enter opens the picture full screen.
+
+An inline picture's box is one link: Up/Down, Tab and Enter treat it like a
+link line, and Enter opens the picture full screen.
 
 ### 6.5 Navigation and history
 
-- **Back stack:** up to 20 entries of `{url, mode, scroll, selected, boxes}` (boxes: inline picture box sizes, so Back returns to the same rows). The
+- **Back stack:** up to 20 entries of `{url, mode, scroll, selected, boxes}`
+  (boxes: inline picture box sizes, so Back returns to the same rows). The
   bodies of the 3 most recent pages stay in memory; older entries are
   fetched again on Back.
 - **History tab:** each successful load records `X-Final-Url` and `X-Title`.
@@ -453,7 +456,7 @@ Files live in `/data/net.picodeck.picosurf/`.
 | Out of memory while parsing or laying out (`pcall`) | clear the cached page bodies, `collectgarbage()`, retry once, then show `Page too large for memory` |
 | Image decode fails | error screen with the image URL |
 | Inline picture fails (proxy error, timeout, decode) | the line stays an `[IMG]` link; Reload tries again |
-| Inline picture larger than its box (a proxy without `fit`) | stays a link; toast `Inline images need a newer proxy`, once per run |
+| Inline picture larger than its box (a proxy without `fit`) | stays a link; toast `Inline images need a newer proxy`; no more inline pictures are fetched until a setting changes |
 | Corrupt storage file | 6.6 |
 
 ## 7. Testing

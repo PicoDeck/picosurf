@@ -35,7 +35,8 @@ def stage_app(dest: Path):
 
 @pytest.fixture
 def picosurf(tmp_path):
-    """start(config=True, settings=None) -> (sim, proxy, data_dir). settings: more config.json keys, e.g. {"images": "inline"}. With config, the app's
+    """start(config=True, settings=None) -> (sim, proxy, data_dir). settings:
+    more config.json keys, e.g. {"images": "inline"}. With config, the app's
     config.json points at a fresh FakeProxy; routes can be added after start
     (they are looked up per request)."""
     started = []
