@@ -128,7 +128,7 @@ shows as is.
 | 400 | missing or malformed `url`, or a scheme other than http/https |
 | 401 | missing or wrong token (compared in constant time) |
 | 403 | the target resolves to a blocked address |
-| 413 | upstream body over the cap, or an image over 16 megapixels |
+| 413 | upstream body over the cap, an image over 16 megapixels, or an HTML page nested deeper than 512 levels (`Page is nested too deeply to read (over 512 levels)`; the HTML parser is quadratic in depth, so a linear pre-scan refuses such pages before parsing) |
 | 415 | unsupported content type, or no feed found |
 | 500 | `PROXY_TOKEN` not configured (fail closed; no request is served) |
 | 502 | upstream error, with the upstream status in `X-Upstream-Status`, e.g. `Site returned 404 Not Found` |
