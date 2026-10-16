@@ -11,9 +11,8 @@ end
 function S.draw(app)
     local m, th, d = app.msg, app.theme, app.disp
     app.ui.drawHeader(m.title or "PicoSurf")
-    d.setFont(th.font)
     local text = m.text or ""
-    local s, e = wrap.wrap(text, theme.cols(th))
+    local s, e = wrap.wrap(text, theme.uiCols(th))
     for i = 1, math.min(#s, 16) do
         d.drawText(th.margin, th.top + 20 + (i - 1) * th.rowH, text:sub(s[i], e[i]), th.error, false)
     end

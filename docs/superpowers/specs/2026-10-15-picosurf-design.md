@@ -307,7 +307,11 @@ Deployment:
   `FONT_SCIENTIFICA_BOLD`; rows 13 px apart. Optional large text:
   `FONT_8X12`, with headings marked by colour only since 8×12 has no bold.
   Columns and rows come from the font metrics and the measured header and
-  footer heights at runtime (about 52 × 22 with Scientifica).
+  footer heights at runtime (about 52 × 22 with Scientifica). The Font setting
+  is the reading font: it applies to page text only. Everything else (title
+  bar, footer, tabs, lists, Settings, loading and error screens) uses the
+  system font `FONT_6X8`, and each frame ends with it current, because the
+  firmware draws toasts, text boxes and the system menu in the current font.
 - **Line styles:**
   - Headings use an accent colour, a different one per level.
   - List items get a bullet with a hanging indent.

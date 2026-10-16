@@ -16,7 +16,7 @@ local KEYCODE = {
 
 function M.new()
     local F = {
-        texts = {}, logs = {}, toasts = {}, menu = {}, events = {}, inputs = {}, confirms = {},
+        texts = {}, textFonts = {}, logs = {}, toasts = {}, menu = {}, events = {}, inputs = {}, confirms = {},
         requests = {}, pending = {}, config = {}, conns = 0, made = {},
         netStatus = 1, synced = true, epoch = 1792000000, ms = 0,
     }
@@ -50,20 +50,30 @@ function M.new()
         FONT_6X8 = 0, FONT_8X12 = 1, FONT_SCIENTIFICA = 2, FONT_SCIENTIFICA_BOLD = 3,
     }
     function display.rgb(r, g, b) return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3) end
-    function display.clear() F.texts = {} end
-    function display.setFont() end
+    -- Every drawn string is recorded with the font current when it was drawn
+    -- (F.textFonts parallels F.texts), as the firmware draws text, the header,
+    -- footer, tabs and list items in the current font.
+    F.font = display.FONT_6X8
+    local function record(t)
+        F.texts[#F.texts + 1] = t
+        F.textFonts[#F.texts] = F.font
+    end
+    function display.clear() F.texts, F.textFonts = {}, {} end
+    function display.setFont(id) F.font = id end
+    function display.getFont() return F.font end
     function display.fillRect() end
-    function display.drawText(_, _, t) F.texts[#F.texts + 1] = t; return #t * 6 end
-    function display.flush() F.frames = (F.frames or 0) + 1; F.service() end
+    function display.drawText(_, _, t) record(t); return #t * 6 end
+    -- The OS draws toasts and the system menu at a flush in the current font.
+    function display.flush() F.frames = (F.frames or 0) + 1; F.flushFont = F.font; F.service() end
 
     local ui = { TOAST_INFO = 0, TOAST_SUCCESS = 1, TOAST_WARNING = 2, TOAST_ERROR = 3 }
-    function ui.drawHeader(t) F.texts[#F.texts + 1] = "[H] " .. t; return 21 end
-    function ui.drawFooter(l, r) F.texts[#F.texts + 1] = "[F] " .. (l or "") .. " | " .. (r or "") end
+    function ui.drawHeader(t) record("[H] " .. t); return 21 end
+    function ui.drawFooter(l, r) record("[F] " .. (l or "") .. " | " .. (r or "")) end
     function ui.drawTabs(_, tabs, active)
-        for i, t in ipairs(tabs) do F.texts[#F.texts + 1] = (i == active and "[T*] " or "[T] ") .. t end
+        for i, t in ipairs(tabs) do record((i == active and "[T*] " or "[T] ") .. t) end
         return active, 21
     end
-    function ui.drawListItem(_, _, _, text, selected) F.texts[#F.texts + 1] = (selected and "[>] " or "[ ] ") .. text end
+    function ui.drawListItem(_, _, _, text, selected) record((selected and "[>] " or "[ ] ") .. text) end
     function ui.drawSpinner() end
     function ui.textInput(prompt) F.lastPrompt = prompt; return table.remove(F.inputs, 1) or nil end
     function ui.confirm(msg)
@@ -165,6 +175,13 @@ function M.new()
     end
     function F.hasLog(text) return has(F.logs, text) end
     function F.hasToast(text) return has(F.toasts, text) end
+    -- The font the first drawn string containing `text` was drawn in, or nil.
+    function F.fontOf(text)
+        for i, v in ipairs(F.texts) do
+            if v:find(text, 1, true) then return F.textFonts[i] end
+        end
+        return nil
+    end
     return F
 end
 

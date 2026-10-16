@@ -126,7 +126,12 @@ function App:step()
         self.dirty = false
         self.lastDraw = now
         self.disp.clear(self.theme.bg)
+        -- Screens draw in the system font; only page text switches to the
+        -- reading font. Back to the system font before the flush, as the
+        -- toasts, text boxes and system menu use whatever font is current.
+        self.disp.setFont(self.theme.ui)
         self.screen.draw(self)
+        self.disp.setFont(self.theme.ui)
         self.disp.flush()
     end
 end

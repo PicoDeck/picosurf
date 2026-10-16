@@ -63,7 +63,6 @@ end
 function S.draw(app)
     local L, th, d = app.loading, app.theme, app.disp
     app.ui.drawHeader("PicoSurf")
-    d.setFont(th.font)
     local msg, sub = "Loading", ""
     if L then
         msg = "Loading " .. url.host(L.url)
@@ -77,7 +76,7 @@ function S.draw(app)
         end
         app.ui.drawSpinner(160, 120, 10, L.frame)
     end
-    d.drawText(th.margin, 150, msg:sub(1, theme.cols(th)), th.fg, false)
+    d.drawText(th.margin, 150, msg:sub(1, theme.uiCols(th)), th.fg, false)
     d.drawText(th.margin, 166, sub, th.dim, false)
     app.ui.drawFooter("Esc cancel", "")
 end

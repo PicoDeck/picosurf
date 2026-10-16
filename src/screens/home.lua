@@ -38,9 +38,8 @@ function S.draw(app)
     local list = items(app, h.tab)
     local sel, top = h.sel[h.tab] or 1, h.top[h.tab] or 1
     if #list == 0 then
-        app.disp.setFont(th.font)
         local hint = HINTS[TABS[h.tab]]
-        local s, e = wrap.wrap(hint, theme.cols(th))
+        local s, e = wrap.wrap(hint, theme.uiCols(th))
         for k = 1, #s do
             app.disp.drawText(th.margin, LIST_TOP + 20 + (k - 1) * th.rowH, hint:sub(s[k], e[k]), th.dim, false)
         end

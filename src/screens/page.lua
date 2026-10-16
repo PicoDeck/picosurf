@@ -21,10 +21,10 @@ end
 function S.draw(app)
     local th, d, p = app.theme, app.disp, app.page
     local L, ps = p.L, p.ps
-    -- The header and footer draw in the current font. The title keeps to
-    -- 220 px, clear of the clock and status icons.
-    d.setFont(th.font)
-    app.ui.drawHeader(p.title:sub(1, 220 // th.cw))
+    -- The header and footer draw in the current font: the system font, as in
+    -- other apps. The title keeps to 220 px, clear of the clock and icons.
+    d.setFont(th.ui)
+    app.ui.drawHeader(p.title:sub(1, 220 // th.uiCw))
     local cols = theme.cols(th)
     for r = ps.top, ps:lastVisible() do
         local y = th.top + 1 + (r - ps.top) * th.rowH
@@ -49,8 +49,8 @@ function S.draw(app)
     if ps.digits ~= "" then left = "Link: " .. ps.digits .. "_" end
     -- A page that advertises a feed (X-Feed-Url) hints that F5 subscribes.
     local right = (p.feedUrl and "F5 feed  " or "") .. ps:percent() .. "% " .. (MODE_LETTER[p.mode] or "F")
-    local room = (320 - 16) // th.cw - #right - 1
-    d.setFont(th.font)
+    local room = (320 - 16) // th.uiCw - #right - 1
+    d.setFont(th.ui)
     app.ui.drawFooter(left:sub(1, math.min(36, room)), right)
 end
 

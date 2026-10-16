@@ -62,10 +62,13 @@ local function hasText(F, text)
     return false
 end
 
--- Plain drawText strings (not the fake's [H], [F], [T] or list rows) fit `cols`.
-local function assertFits(F, cols, label)
-    for _, t in ipairs(F.texts) do
-        if t:sub(1, 1) ~= "[" then T.ok(#t <= cols, label .. ": too wide: " .. t) end
+-- Screens other than the page draw everything in the system font (6x8), so
+-- the reading font never reaches them: every string (header, footer, tabs,
+-- list rows, plain text) is in that font, and plain text fits its 52 columns.
+local function assertSystemText(F, label)
+    for i, t in ipairs(F.texts) do
+        T.eq(F.textFonts[i], F.pc.display.FONT_6X8, label .. ": not in the system font: " .. t)
+        if t:sub(1, 1) ~= "[" then T.ok(#t <= 52, label .. ": too wide: " .. t) end
     end
 end
 
@@ -483,7 +486,7 @@ return {
         T.ok(hasText(F, "[H] " .. string.rep("T", 220 // 6)))
         local app2, F2 = boot({ font = "8x12" })
         go(app2, F2, "title.test/")
-        T.ok(hasText(F2, "[H] " .. string.rep("T", 220 // 8)))
+        T.ok(hasText(F2, "[H] " .. string.rep("T", 220 // 6)), "the title bar keeps the system font")
     end,
     settings_return_to_the_page_from_loading = function() -- M12
         local app, F = boot()
@@ -524,24 +527,44 @@ return {
         local path = F.requests[#F.requests].path
         T.ok(path:find("url=https%3A%2F%2Fblog.test%2Ffeed.xml&as=feed", 1, true), path)
     end,
-    fixed_texts_fit_the_large_font = function() -- M16
+    fixed_texts_use_the_system_font = function() -- M16; the reading font is for pages only
         local app, F = boot({ config = false, font = "8x12" })
         F.inputs = { "ftp://x" }
         F.press("enter"); steps(app, 1)
         T.ok(app.baseErr)
-        assertFits(F, 39, "settings, bad URL")
+        assertSystemText(F, "settings, bad URL")
         F.inputs = { "http://192.168.1.5:8080/x/" }
         F.press("enter"); steps(app, 1)
         T.ok(F.screenText():find("Warning", 1, true))
-        assertFits(F, 39, "settings, http warning")
+        assertSystemText(F, "settings, http warning")
         F.press("esc"); steps(app, 1)
         for _ = 1, 3 do
             F.press("right"); steps(app, 1)
-            assertFits(F, 39, "home hints")
+            assertSystemText(F, "home")
         end
         F.holding = true
         go(app, F, "a-rather-long-host-name-for-the-loading-screen.test/")
         T.eq(app.screenName, "loading")
-        assertFits(F, 39, "loading")
+        assertSystemText(F, "loading")
+        T.eq(F.flushFont, F.pc.display.FONT_6X8, "the system font when the frame is shown")
+    end,
+    the_reading_font_is_only_for_page_text = function()
+        local app, F = boot({ font = "8x12" })
+        go(app, F, "a.test/")
+        T.eq(app.screenName, "page")
+        local D = F.pc.display
+        T.eq(F.fontOf("[H] "), D.FONT_6X8, "the title bar")
+        T.eq(F.fontOf("[F] "), D.FONT_6X8, "the footer")
+        T.eq(F.fontOf("See the docs"), D.FONT_8X12, "the page text")
+        -- The system menu, toasts and text boxes run between frames in
+        -- whatever font is current: the frame ends in the system font.
+        T.eq(F.flushFont, D.FONT_6X8)
+        T.eq(F.font, D.FONT_6X8)
+    end,
+    an_error_screen_uses_the_system_font = function()
+        local app, F = boot({ font = "8x12" })
+        go(app, F, "missing.test/")
+        T.eq(app.screenName, "message")
+        assertSystemText(F, "error")
     end,
 }
