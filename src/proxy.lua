@@ -4,9 +4,11 @@ local url = require("src.url")
 
 local M = {}
 
-function M.getPath(base, target, as)
+-- fit: "WxH" for an inline picture's box (inline images spec 3.1), or nil.
+function M.getPath(base, target, as, fit)
     local p = base.prefix .. "/v1/get?url=" .. url.encode(target)
     if as then p = p .. "&as=" .. as end
+    if fit then p = p .. "&fit=" .. fit end
     return p
 end
 

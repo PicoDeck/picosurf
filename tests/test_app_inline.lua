@@ -1,0 +1,268 @@
+local T = require("tests.t")
+local fakepc = require("tests.fakepc")
+local App = require("src.app")
+local layout = require("src.layout")
+
+local function lines(from, to)
+    local out = {}
+    for i = from, to do out[#out + 1] = "line " .. i end
+    return table.concat(out, "\n")
+end
+
+-- Rows at 52 columns: 1 title, 2 intro, 3 picture one, 4-33 text, 34 picture
+-- two, 35-64 text, 65 picture three. 21 rows show, so at the top the window
+-- (rows -20 to 42) holds pictures one and two.
+local PICS = table.concat({
+    "# Pics", "intro", "=> https://img.test/1.jpg [IMG] one", lines(1, 30),
+    "=> https://img.test/2.jpg [IMG] two", lines(31, 60), "=> https://img.test/3.jpg [IMG] three",
+}, "\n")
+
+local function gallery()
+    local parts = { "# Gallery" }
+    for i = 1, 40 do parts[#parts + 1] = "=> https://img.test/g" .. i .. ".jpg [IMG] picture " .. i end
+    return table.concat(parts, "\n")
+end
+
+local function jpeg(w, h)
+    return { type = "image/jpeg", mode = false, body = "JPEG:" .. w .. "x" .. h }
+end
+
+local ROUTES = {
+    ["https://pics.test/"] = { title = "Pics", body = PICS },
+    ["https://img.test/1.jpg"] = jpeg(200, 100), -- 8 rows
+    ["https://img.test/2.jpg"] = jpeg(312, 126), -- 10 rows
+    ["https://img.test/3.jpg"] = jpeg(100, 50), -- 5 rows
+    ["https://b.test/"] = { title = "B", body = "# B\n\nBack page.\n" },
+    ["https://fail.test/"] = {
+        title = "F",
+        body = "# F\n=> https://img.test/missing.jpg [IMG] gone\n=> https://img.test/bad.jpg [IMG] broken\n"
+            .. "=> gemini://g.test/x.jpg [IMG] elsewhere\n",
+    },
+    ["https://img.test/bad.jpg"] = { type = "image/jpeg", mode = false, body = "nope" },
+    ["https://twice.test/"] = {
+        title = "T", body = "# T\n=> https://img.test/1.jpg [IMG] one\ntext\n=> https://img.test/1.jpg [IMG] one again\n",
+    },
+    ["https://old.test/"] = {
+        title = "O", body = "# O\n=> https://img.test/big1.jpg [IMG] one\n=> https://img.test/big2.jpg [IMG] two\n",
+    },
+    ["https://img.test/big1.jpg"] = jpeg(320, 240),
+    ["https://img.test/big2.jpg"] = jpeg(320, 240),
+    ["https://gallery.test/"] = { title = "Gallery", body = gallery() },
+}
+for i = 1, 40 do ROUTES["https://img.test/g" .. i .. ".jpg"] = jpeg(200, 100) end
+
+local function boot(opts)
+    opts = opts or {}
+    local F = fakepc.new()
+    F.config.proxy_url, F.config.token = "https://p.test", "tok"
+    F.config.images, F.config.font = opts.images, opts.font
+    F.responder = fakepc.proxy(ROUTES, "tok")
+    local app = App.new(F.pc, "net.picodeck.picosurf")
+    app:start()
+    app:step()
+    return app, F
+end
+
+local function steps(app, n)
+    for _ = 1, n or 3 do app:step() end
+end
+
+local function go(app, F, text)
+    F.inputs[#F.inputs + 1] = text
+    F.press("f1")
+    steps(app)
+end
+
+-- Opens a page, holding every response after the page's own: the first
+-- picture's request is left waiting.
+local function openHolding(app, F, text)
+    F.inputs[#F.inputs + 1] = text
+    F.press("f1")
+    app:step()
+    F.holding = true
+    app:step()
+end
+
+-- The paths of the picture requests so far, in order.
+local function pictureRequests(F)
+    local out = {}
+    for _, r in ipairs(F.requests) do
+        if r.path:find("&fit=", 1, true) then out[#out + 1] = r.path end
+    end
+    return out
+end
+
+-- Link k's rows when it is laid out as a box, else 0.
+local function boxRows(app, k)
+    local L = app.page.L
+    local link = L.links[k]
+    if L.style[link.first] ~= layout.BOX then return 0 end
+    return link.last - link.first + 1
+end
+
+local function decodedNow(app)
+    local n = 0
+    for _, e in pairs(app.page.inline.byUrl) do
+        if e.img then n = n + 1 end
+    end
+    return n
+end
+
+return {
+    pictures_load_in_order_and_grow_their_boxes = function()
+        local app, F = boot({ images = "inline" })
+        go(app, F, "pics.test/")
+        steps(app, 4)
+        local reqs = pictureRequests(F)
+        T.eq(#reqs, 2, "the third picture is beyond the window")
+        T.eq(reqs[1], "/v1/get?url=https%3A%2F%2Fimg.test%2F1.jpg&fit=312x126")
+        T.ok(reqs[2]:find("2.jpg", 1, true))
+        T.eq(boxRows(app, 1), 8); T.eq(boxRows(app, 2), 10); T.eq(boxRows(app, 3), 0)
+        T.ok(F.hasLog("picosurf: inline 1 w=200 h=100 rows=8"))
+        T.ok(F.hasLog("picosurf: inline 2 w=312 h=126 rows=10"))
+        T.eq(app.page.ps.top, 1, "growing below the top leaves the view")
+    end,
+    one_picture_at_a_time = function()
+        local app, F = boot({ images = "inline" })
+        openHolding(app, F, "pics.test/")
+        steps(app, 2)
+        T.eq(app.screenName, "page")
+        T.eq(#pictureRequests(F), 1)
+        F.holding = false
+        steps(app, 2)
+        T.eq(#pictureRequests(F), 2)
+    end,
+    a_picture_above_the_view_grows_without_moving_it = function()
+        local app, F = boot({ images = "inline" })
+        openHolding(app, F, "pics.test/")
+        F.press("right"); F.press("right"); steps(app, 1)
+        local ps = app.page.ps
+        T.eq(ps.top, 41)
+        local line = app.page.L.line[41]
+        F.holding = false
+        steps(app, 8)
+        -- One grows by 7 rows and two by 9, both above the view; three by 4, below it.
+        T.eq(#pictureRequests(F), 3)
+        T.eq(app.page.ps.top, 57); T.eq(app.page.L.line[57], line, "the same line is at the top")
+    end,
+    links_mode_fetches_no_pictures = function()
+        local app, F = boot()
+        go(app, F, "pics.test/")
+        steps(app, 4)
+        T.eq(#pictureRequests(F), 0)
+        T.eq(app.page.inline, nil)
+        T.eq(app.page.L.style[3], layout.IMAGE)
+    end,
+    failed_pictures_stay_link_lines = function()
+        local app, F = boot({ images = "inline" })
+        go(app, F, "fail.test/")
+        steps(app, 4)
+        T.eq(#pictureRequests(F), 2, "the gemini picture is not fetched")
+        T.ok(F.hasLog("picosurf: inline failed https://img.test/missing.jpg 502 Site returned 404 Not Found"))
+        T.ok(F.hasLog("picosurf: inline failed https://img.test/bad.jpg decode"))
+        for k = 1, 3 do T.eq(boxRows(app, k), 0, "link " .. k .. " stays a line") end
+        app.page.inline.wake = true
+        steps(app, 2)
+        T.eq(#pictureRequests(F), 2, "not tried again")
+        F.menu["Reload"](); steps(app, 6)
+        T.eq(#pictureRequests(F), 4, "Reload tries again")
+    end,
+    leaving_the_page_cancels_the_picture_in_flight = function()
+        local app, F = boot({ images = "inline" })
+        openHolding(app, F, "pics.test/")
+        T.eq(#pictureRequests(F), 1)
+        F.menu["Settings"](); steps(app, 1)
+        T.ok(F.hasLog("picosurf: inline cancelled https://img.test/1.jpg"))
+        T.eq(app.page.inline.inflight, nil)
+        T.eq(app.page.inline.byUrl["https://img.test/1.jpg"], nil)
+        F.holding = false
+        F.press("esc"); steps(app, 4)
+        T.eq(app.screenName, "page")
+        T.eq(#pictureRequests(F), 3, "fetched again on return, then the next")
+        T.eq(boxRows(app, 1), 8)
+    end,
+    leaving_for_a_cached_page_cancels_the_picture = function() -- Review Focus 4
+        local app, F = boot({ images = "inline" })
+        go(app, F, "b.test/")
+        openHolding(app, F, "pics.test/")
+        T.eq(app.page.url, "https://pics.test/")
+        F.press("backspace"); steps(app, 1)
+        T.eq(app.page.url, "https://b.test/")
+        T.ok(F.hasLog("picosurf: inline cancelled https://img.test/1.jpg"))
+        F.holding = false
+        steps(app, 3)
+        T.eq(app.screenName, "page"); T.eq(app.page.url, "https://b.test/")
+        T.eq(#pictureRequests(F), 1)
+    end,
+    the_same_picture_twice_is_fetched_once = function() -- Review Focus 1
+        local app, F = boot({ images = "inline" })
+        go(app, F, "twice.test/")
+        steps(app, 3)
+        T.eq(#pictureRequests(F), 1)
+        T.eq(#F.decoded, 1)
+        T.eq(boxRows(app, 1), 8); T.eq(boxRows(app, 2), 8)
+    end,
+    a_gallery_keeps_few_pictures_decoded = function() -- Review Focus 2
+        local app, F = boot({ images = "inline" })
+        go(app, F, "gallery.test/")
+        local most = 0
+        for _ = 1, 60 do
+            F.press("right"); steps(app, 3)
+            most = math.max(most, decodedNow(app))
+        end
+        T.eq(app.page.ps.top, app.page.ps:maxTop(), "scrolled to the end")
+        T.eq(boxRows(app, 40), 8, "the last picture loaded")
+        -- The window's 63 rows overlap at most 9 boxes of 8 rows; one more may
+        -- be decoded in the step before the next pass drops it.
+        T.ok(most <= 10, "decoded pictures stay within the window: " .. most)
+    end,
+    waits_for_wifi = function()
+        local app, F = boot({ images = "inline" })
+        F.inputs[#F.inputs + 1] = "pics.test/"
+        F.press("f1")
+        app:step()
+        F.netStatus = 0
+        steps(app, 3)
+        T.eq(app.screenName, "page")
+        T.eq(#pictureRequests(F), 0, "no WiFi")
+        F.netStatus = 1
+        steps(app, 2)
+        T.eq(#pictureRequests(F), 0, "looks again after 3 s")
+        F.ms = F.ms + 3000
+        steps(app, 1)
+        T.eq(#pictureRequests(F), 1)
+    end,
+    clock_not_set_waits_and_tries_again = function()
+        local app, F = boot({ images = "inline" })
+        local respond, fails = F.responder, 0
+        F.responder = function(path, headers)
+            -- Twice: the pool retries a reused connection once on a fresh one.
+            if path:find("1.jpg", 1, true) and fails < 2 then
+                fails = fails + 1
+                return nil, "clock not set"
+            end
+            return respond(path, headers)
+        end
+        go(app, F, "pics.test/")
+        steps(app, 2)
+        T.eq(boxRows(app, 1), 0)
+        T.eq(app.page.inline.byUrl["https://img.test/1.jpg"], nil)
+        T.ok(app.page.inline.retryAt)
+        F.ms = F.ms + 3000
+        steps(app, 3)
+        T.eq(boxRows(app, 1), 8)
+    end,
+    an_old_proxy_ignores_fit = function()
+        local app, F = boot({ images = "inline" })
+        go(app, F, "old.test/")
+        steps(app, 3)
+        T.eq(#pictureRequests(F), 2)
+        T.ok(F.hasLog("picosurf: inline failed https://img.test/big1.jpg larger than 312x126"))
+        local n = 0
+        for _, t in ipairs(F.toasts) do
+            if t == "Inline images need a newer proxy" then n = n + 1 end
+        end
+        T.eq(n, 1, "one toast")
+        T.eq(boxRows(app, 1), 0); T.eq(boxRows(app, 2), 0)
+    end,
+}

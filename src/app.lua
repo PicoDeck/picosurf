@@ -9,6 +9,7 @@ local store = require("src.store")
 local keys = require("src.keys")
 local theme = require("src.theme")
 local feeds = require("src.feeds")
+local inline = require("src.inline")
 
 local App = {}
 App.__index = App
@@ -32,7 +33,10 @@ end
 
 function App:loadConfig()
     local c = self.pc.config
-    self.cfg = { proxyUrl = c.get("proxy_url") or "", token = c.get("token") or "", font = c.get("font") or "scientifica" }
+    self.cfg = {
+        proxyUrl = c.get("proxy_url") or "", token = c.get("token") or "", font = c.get("font") or "scientifica",
+        images = c.get("images") == "inline" and "inline" or "links",
+    }
     self.theme = theme.new(self.disp, self.cfg.font)
     self:cancelRefresh() -- before closeAll, which would fail its requests
     if self.pool then self.pool:closeAll() end
@@ -168,10 +172,11 @@ function App:pump()
     while #notes > 0 do self:toast(table.remove(notes, 1), self.ui.TOAST_WARNING) end
 end
 
--- Starts a proxy request; done(result) runs from the main loop.
-function App:request(target, as, done)
+-- Starts a proxy request; done(result) runs from the main loop. fit: "WxH"
+-- for an inline picture (nil for pages and full-screen images).
+function App:request(target, as, done, fit)
     if not self.pool then return nil, self.baseErr or "Set the proxy URL in Settings" end
-    local handle, err = self.pool:get(proxy.getPath(self.base, target, as), proxy.headers(self.cfg.token),
+    local handle, err = self.pool:get(proxy.getPath(self.base, target, as, fit), proxy.headers(self.cfg.token),
         function(ok, status, body, headers)
             self.inbox[#self.inbox + 1] = { done = done, result = proxy.interpret(ok, status, body, headers) }
         end)
@@ -241,6 +246,7 @@ function App:showResult(target, mode, r, opts)
         if not page then return self:fail(err) end
         if opts.back then table.remove(self.back) end
         if opts.push ~= false and self.page then self:pushBack() end
+        self:cancelInline(self.page)
         self.page = page
         self:cachePut(finalUrl, mode, r)
         if not opts.back then self.store:addHistory(finalUrl, page.title) end
@@ -292,6 +298,7 @@ function App:buildPage(finalUrl, mode, r, restore)
     }
     page.ps = pagestate.new(L, theme.rows(self.theme))
     if restore then page.ps:restore(restore.top, restore.sel) end
+    if self.cfg.images == "inline" then page.inline = inline.new() end -- inline images spec 5.1
     return page
 end
 
@@ -330,6 +337,125 @@ function App:relayout()
     p.ps:restore(top, sel)
 end
 
+-- Whether a picture can be fetched now: a proxy, WiFi, and for TLS a set clock.
+function App:canFetchImages()
+    if not self.pool or self.pc.network.getStatus() ~= 1 then return false end
+    return not (self.base.tls and not self.sys.getClock().synced)
+end
+
+-- Inline pictures, each step on the page screen (inline images spec 5.2): drop
+-- the decoded pictures that left the window, decode one, and start the next
+-- fetch. A pass runs only when something may have changed: the view moved, a
+-- picture arrived or was decoded, or the retry time passed.
+function App:stepImages()
+    local p = self.page
+    local st = p and p.inline
+    if not st then return end
+    local ps, now = p.ps, self.sys.getTimeMs()
+    if ps.top ~= st.seenTop then st.seenTop, st.wake = ps.top, true end
+    if st.retryAt and now - st.retryAt >= 0 then st.retryAt, st.wake = nil, true end
+    if not st.wake then return end
+    st.wake = false
+    local L = p.L
+    local order = inline.order(L, ps)
+    for _, u in ipairs(st:drops(L, order)) do st:drop(u) end
+    local k = st:nextDecode(L, order)
+    if k then
+        self:decodeInline(p, L.links[k].url)
+        st.wake = true
+    end
+    if st.inflight or st.retryAt then return end
+    local fk, u = st:nextFetch(L, order)
+    if not fk then return end
+    if not self:canFetchImages() then
+        st.retryAt = now + inline.RETRY_MS
+        return
+    end
+    self:fetchInline(p, u)
+    st.wake = true -- the next picture, or the pool was busy: look again next step
+end
+
+function App:fetchInline(p, u)
+    local st = p.inline
+    local req = { url = u }
+    req.handle = self:request(u, nil, function(r) self:inlineArrived(p, req, r) end, inline.FIT)
+    if not req.handle then return end -- the pool is busy
+    st.byUrl[u] = { state = "loading" }
+    st.inflight = req
+    self:log("inline", "fetch", u)
+end
+
+-- A picture's response, from pump. Ignored when its page or request has gone.
+function App:inlineArrived(p, req, r)
+    local st = p.inline
+    if self.page ~= p or not st or st.inflight ~= req then return end
+    st.inflight, st.wake = nil, true
+    local u = req.url
+    if r.kind == "clock" then
+        st.byUrl[u] = nil
+        st.retryAt = self.sys.getTimeMs() + inline.RETRY_MS
+        return
+    end
+    if r.kind ~= "image" then
+        st.byUrl[u].state = "failed"
+        return self:log("inline", "failed", u, r.status or "-", r.message or r.kind)
+    end
+    st.byUrl[u].state = "ready"
+    st:keepBytes(u, r.body)
+    self:decodeInline(p, u)
+end
+
+-- Decodes u's bytes and lays every image link to u out as a box of its
+-- picture's rows, keeping the view on the same content (inline images 5.3).
+function App:decodeInline(p, u)
+    local st = p.inline
+    local ok, img = pcall(self.pc.graphics.image.loadFromBuffer, st.byUrl[u].bytes)
+    if not ok or not img then
+        st:fail(u)
+        return self:log("inline", "failed", u, "decode", tostring(img))
+    end
+    local w, h = img:getSize()
+    if w > inline.FIT_W or h > inline.FIT_H then
+        -- A proxy older than fit sent a 320x320 picture.
+        st:fail(u)
+        self:log("inline", "failed", u, "larger than " .. inline.FIT)
+        if not self.oldProxyWarned then
+            self.oldProxyWarned = true
+            self:toast("Inline images need a newer proxy", self.ui.TOAST_WARNING)
+        end
+        return
+    end
+    local e = st.byUrl[u]
+    e.img, e.w, e.h = img, w, h
+    st:touch(u)
+    local rows = inline.rows(h)
+    for k, link in ipairs(p.L.links) do
+        if link.image and link.url == u then
+            if st.boxes[k] ~= rows or p.L.style[link.first] ~= layout.BOX then
+                local first = link.first
+                p.ps:shift(first, layout.setBox(p.L, k, rows))
+                st.boxes[k] = rows
+            end
+            self:log("inline", k, "w=" .. w, "h=" .. h, "rows=" .. rows)
+        end
+    end
+    self.dirty = true
+end
+
+-- Cancels page p's picture in flight and forgets it, so it is fetched again
+-- when the page is back on screen.
+function App:cancelInline(p)
+    local st = p and p.inline
+    if not st then return end
+    st.wake = true
+    local req = st.inflight
+    if not req then return end
+    st.inflight = nil
+    st.byUrl[req.url] = nil
+    req.handle.cancel()
+    self:log("inline", "cancelled", req.url)
+end
+
 -- The message screen titled "Error", or "Error <status>" for a proxy status.
 function App:fail(message, retry, status)
     local title = status and ("Error " .. (math.tointeger(status) or status)) or "Error"
@@ -337,6 +463,7 @@ function App:fail(message, retry, status)
 end
 
 function App:goHome()
+    self:cancelInline(self.page)
     self.page, self.back = nil, {}
     self:show("home")
 end
@@ -540,6 +667,7 @@ function App:showFeed(feed, opts)
     page.ps = pagestate.new(L, theme.rows(self.theme))
     if opts.restore then page.ps:restore(opts.restore.top, opts.restore.sel) end
     if opts.push ~= false and self.page then self:pushBack() end
+    self:cancelInline(self.page)
     self.page = page
     self:log("feed", feed.id, "unread=" .. feed.unread)
     self:show("page")

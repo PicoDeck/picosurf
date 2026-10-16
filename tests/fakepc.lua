@@ -17,7 +17,7 @@ local KEYCODE = {
 function M.new()
     local F = {
         texts = {}, textFonts = {}, logs = {}, toasts = {}, menu = {}, events = {}, inputs = {}, confirms = {},
-        requests = {}, pending = {}, config = {}, conns = 0, made = {},
+        requests = {}, pending = {}, config = {}, conns = 0, made = {}, decoded = {},
         netStatus = 1, synced = true, epoch = 1792000000, ms = 0,
     }
     local fs, files = fakes.fs()
@@ -146,8 +146,12 @@ function M.new()
     local graphics = { image = {} }
     function graphics.image.loadFromBuffer(data)
         if data:sub(1, 4) ~= "JPEG" then error("JPEG decoding failed") end
+        -- "JPEG:<w>x<h>" decodes to that size; any other JPEG body to 200x120.
+        local w, h = data:match("^JPEG:(%d+)x(%d+)")
+        w, h = math.tointeger(tonumber(w)) or 200, math.tointeger(tonumber(h)) or 120
+        F.decoded[#F.decoded + 1] = data
         local img = {}
-        function img:getSize() return 200, 120 end
+        function img:getSize() return w, h end
         function img:draw() end
         return img
     end

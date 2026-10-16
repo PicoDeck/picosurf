@@ -7,6 +7,7 @@ return {
     builds_paths_and_headers = function()
         T.eq(proxy.getPath(BASE, "https://a.test/x?y=1", "full"), "/ps/v1/get?url=https%3A%2F%2Fa.test%2Fx%3Fy%3D1&as=full")
         T.eq(proxy.getPath({ prefix = "" }, "https://a.test/", nil), "/v1/get?url=https%3A%2F%2Fa.test%2F")
+        T.eq(proxy.getPath({ prefix = "" }, "https://a.test/c.jpg", nil, "312x126"), "/v1/get?url=https%3A%2F%2Fa.test%2Fc.jpg&fit=312x126")
         T.eq(proxy.pingPath(BASE), "/ps/v1/ping")
         T.eq(proxy.headers("tok").Authorization, "Bearer tok")
     end,

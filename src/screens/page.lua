@@ -54,6 +54,16 @@ function S.draw(app)
     app.ui.drawFooter(left:sub(1, math.min(36, room)), right)
 end
 
+-- Inline pictures load while the page is on screen (inline images spec 5.2).
+function S.update(app)
+    app:stepImages()
+end
+
+-- Leaving by any route cancels the picture in flight; it's fetched again on return.
+function S.leave(app)
+    app:cancelInline(app.page)
+end
+
 function S.key(app, action, arg)
     local ps = app.page.ps
     if action == "digit" then
