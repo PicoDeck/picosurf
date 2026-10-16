@@ -1,16 +1,15 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import sharp, { type Sharp } from "sharp";
+import { handleRequest } from "../src/handler";
 import { WASM_MAX_PIXELS, createWasmResizer } from "../src/img-wasm";
+import { jpegInfo } from "../src/imgsize";
+import { canStreamPng } from "../src/png-stream";
+import { fakeFetch } from "./helpers/fakefetch";
+import { encodePng, photo } from "./helpers/png";
 import { resizerContract } from "./helpers/resizer-contract";
+import { wasmModules } from "./helpers/wasm";
 
-const mod = (path: string) => new WebAssembly.Module(readFileSync(new URL(`../node_modules/${path}`, import.meta.url)));
-const make = () =>
-  createWasmResizer({
-    jpegDec: mod("@jsquash/jpeg/codec/dec/mozjpeg_dec.wasm"),
-    jpegEnc: mod("@jsquash/jpeg/codec/enc/mozjpeg_enc.wasm"),
-    pngDec: mod("@jsquash/png/codec/pkg/squoosh_png_bg.wasm"),
-    webpDec: mod("@jsquash/webp/codec/dec/webp_dec.wasm"),
-  });
+const make = () => createWasmResizer(wasmModules());
 
 resizerContract("wasm", async () => make());
 
@@ -41,5 +40,32 @@ describe("wasm resizer GIF guard", () => {
     ["a screen over WASM_MAX_PIXELS", gif(WASM_MAX_PIXELS / 1000 + 1, 1000, 1, 1)],
   ])("refuses %s before decoding", async (_name, bytes) => {
     await expect(resizer.resize(bytes, "gif")).rejects.toThrow();
+  });
+});
+
+const jpegSize = (bytes: Uint8Array) => jpegInfo(bytes)?.size;
+
+describe("wasm resizer PNG paths", () => {
+  it.each([
+    ["16-bit", (img: Sharp) => img.toColourspace("rgb16").png()],
+    ["interlaced", (img: Sharp) => img.png({ progressive: true })],
+    ["4-bit palette", (img: Sharp) => img.png({ palette: true, colours: 16 })],
+  ])("decodes a %s PNG with the WASM decoder", async (_name, encode) => {
+    const png = new Uint8Array(await encode(sharp(photo(800, 600, 3), { raw: { width: 800, height: 600, channels: 3 } })).toBuffer());
+    expect(canStreamPng(png)).toBe(false);
+    expect(jpegSize(await make().resize(png, "png"))).toEqual({ width: 320, height: 240 });
+  });
+
+  it("answers 415 for a truncated PNG, as before streaming", async () => {
+    const p = { width: 800, height: 600, colorType: 2 as const, pixels: photo(800, 600, 3) };
+    const png = encodePng(p);
+    const cut = png.slice(0, Math.floor(png.length * 0.6));
+    const res = await handleRequest(
+      new Request(`https://proxy.example/v1/get?url=${encodeURIComponent("https://example.com/a.png")}`, { headers: { Authorization: "Bearer t" } }),
+      { PROXY_TOKEN: "t" },
+      { fetch: fakeFetch({ "https://example.com/a.png": new Response(cut, { headers: { "Content-Type": "image/png" } }) }), resizer: make() },
+    );
+    expect(res.status).toBe(415);
+    expect(await res.text()).toBe("Could not decode the image\n");
   });
 });

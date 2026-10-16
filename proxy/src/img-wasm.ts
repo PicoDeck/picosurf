@@ -1,5 +1,6 @@
 // The Workers resizer: jSquash WASM codecs to decode and encode, omggif for
-// GIF, and a box filter in JS to scale down (boxscale.ts) (spec 5.8).
+// GIF, a streaming decoder for most PNGs (png-stream.ts), and a box filter in
+// JS to scale down (boxscale.ts) (spec 5.8).
 // The WASM modules are passed in because Workers can only load them as
 // bundled imports (worker.ts); tests compile them from node_modules.
 
@@ -8,9 +9,10 @@ import encodeJpeg, { init as initJpegEnc } from "@jsquash/jpeg/encode";
 import decodePng, { init as initPngDec } from "@jsquash/png/decode";
 import decodeWebp, { init as initWebpDec } from "@jsquash/webp/decode";
 import { GifReader } from "omggif";
-import { boxScale } from "./boxscale";
+import { type Rgba, boxScale } from "./boxscale";
 import type { ImageType } from "./content";
 import { JPEG_QUALITY, type Resizer, fitWithin } from "./img";
+import { canStreamPng, streamPng } from "./png-stream";
 
 /** Minimal ImageData for runtimes without one (Node, and possibly Workers); jSquash constructs it. */
 class ImageDataShim {
@@ -68,8 +70,7 @@ export function createWasmResizer(mods: WasmModules): Resizer {
     maxPixels: WASM_MAX_PIXELS,
     async resize(bytes, type) {
       await init();
-      const source = await decode(bytes, type);
-      const scaled = boxScale(source.data, source.width, source.height, fitWithin(source.width, source.height));
+      const scaled = await decodeScaled(bytes, type);
       const out = await encodeJpeg(new ImageData(scaled.data, scaled.width, scaled.height), {
         quality: JPEG_QUALITY,
         baseline: true,
@@ -78,6 +79,13 @@ export function createWasmResizer(mods: WasmModules): Resizer {
       return new Uint8Array(out);
     },
   };
+}
+
+/** Decodes and scales to fit 320x320: 8-bit PNGs stream, everything else decodes whole first. */
+async function decodeScaled(bytes: Uint8Array, type: ImageType): Promise<Rgba> {
+  if (type === "png" && canStreamPng(bytes)) return streamPng(bytes);
+  const image = await decode(bytes, type);
+  return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height));
 }
 
 async function decode(bytes: Uint8Array, type: ImageType): Promise<ImageData> {
