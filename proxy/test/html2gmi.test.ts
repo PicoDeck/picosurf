@@ -160,6 +160,12 @@ describe("links and images", () => {
   });
 });
 
+describe("headings that are links", () => {
+  it("renders a heading whose only content is a same-page anchor link as a plain heading", () => {
+    expect(gmi('<h3 id="x"><a href="#x">Title</a></h3>')).toBe("### Title\n");
+  });
+});
+
 describe("dated lists laid out by CSS", () => {
   const list = (sep: string) =>
     `<p class="article-list"><time>Sep 27 2026</time>${sep}<a href="/one">First post</a>${sep}<time>Sep 20 2026</time>${sep}<a href="/two">Second post</a></p>`;
