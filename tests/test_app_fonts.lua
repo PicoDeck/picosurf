@@ -10,6 +10,13 @@ local function lines(from, to)
     return table.concat(out, "\n")
 end
 
+-- n link lines, each one row.
+local function links(n)
+    local out = {}
+    for i = 1, n do out[i] = "=> https://b.test/ link " .. i end
+    return table.concat(out, "\n")
+end
+
 local FONTS_PAGE = table.concat({
     "# Reading fonts",
     "* " .. string.rep("item words ", 8),
@@ -35,6 +42,7 @@ local ROUTES = {
         body = table.concat({ "# Pics", "intro", "=> https://img.test/1.jpg [IMG] one", lines(1, 40) }, "\n"),
     },
     ["https://b.test/"] = { title = "B", body = "# B\n\nBack page.\n" },
+    ["https://links.test/"] = { title = "Links", body = "# Links\n" .. links(30) },
     ["https://wide.test/"] = { title = "W", body = "# Wide\n" .. string.rep("mmmm wwww ", 40) },
     ["https://img.test/p.jpg"] = jpeg(200, 120),
     ["https://img.test/1.jpg"] = jpeg(200, 120), -- 10 rows of 13 px, 9 of 14 px
@@ -204,5 +212,21 @@ return {
         T.eq(app.theme.fontName, "sans")
         T.eq(app.page.ps.visible, theme.rows(app.theme), "20 rows of 14 px")
         assertWithinPage(F)
+    end,
+    back_across_a_font_change_keeps_the_selected_link = function() -- final review F2
+        local app, F = boot({ font = "scientifica" })
+        go(app, F, "links.test/")
+        local ps = app.page.ps
+        local vis = ps:visibleLinks()
+        local sel = vis[#vis]
+        T.eq(app.page.L.links[sel].first, ps:lastVisible(), "a link on the bottom row")
+        ps.sel = sel; app.dirty = true; steps(app, 1)
+        go(app, F, "b.test/")
+        nextFont(app, F); nextFont(app, F) -- scientifica -> 8x12 -> sans: 21 rows to 20
+        F.press("backspace"); steps(app, 3)
+        T.eq(app.page.url, "https://links.test/")
+        ps = app.page.ps
+        T.eq(ps.sel, sel, "the same link selected")
+        T.eq(app.page.L.links[sel].last, ps:lastVisible(), "scrolled just far enough to show it")
     end,
 }

@@ -344,12 +344,25 @@ local function firstRowOf(L, li)
     return lo
 end
 
+-- The top row of a page laid out again: source line `line` at the top, unless
+-- longer rows pushed selected link `sel` below the screen of `visible` rows,
+-- when it scrolls just far enough to show it.
+local function relaidTop(L, line, sel, visible)
+    local top = line and firstRowOf(L, line) or 1
+    local link = sel and L.links[sel]
+    if link and link.first > top + visible - 1 then
+        top = math.min(link.first, link.last - visible + 1)
+    end
+    return top
+end
+
 -- The top row to restore: the saved row, unless those rows were counted in
 -- another layout (another font, or picture boxes now gone), when the saved
--- source line goes back to the top instead (proportional fonts spec 5.3).
-local function restoreTop(L, restore, fontName, boxesGone)
+-- source line goes back to the top instead, keeping the selected link on
+-- screen (proportional fonts spec 5.3).
+local function restoreTop(L, restore, fontName, boxesGone, visible)
     local relaid = restore.font ~= fontName or boxesGone
-    if relaid and restore.line then return firstRowOf(L, restore.line) end
+    if relaid and restore.line then return relaidTop(L, restore.line, restore.sel, visible) end
     return restore.top
 end
 
@@ -371,7 +384,8 @@ function App:buildPage(finalUrl, mode, r, restore)
     }
     page.ps = pagestate.new(L, theme.rows(self.theme))
     if restore then
-        page.ps:restore(restoreTop(L, restore, self.theme.fontName, restore.boxes and not boxes), restore.sel)
+        local top = restoreTop(L, restore, self.theme.fontName, restore.boxes and not boxes, page.ps.visible)
+        page.ps:restore(top, restore.sel)
     end
     if self.cfg.images == "inline" then page.inline = inline.new(boxes) end
     return page
@@ -395,13 +409,7 @@ function App:relayout()
     end
     p.L = L
     p.ps = pagestate.new(L, theme.rows(self.theme))
-    local top = line and firstRowOf(L, line) or 1
-    local link = sel and L.links[sel]
-    if link and link.first > top + p.ps.visible - 1 then
-        -- Longer rows pushed the link below the screen: scroll just far enough.
-        top = math.min(link.first, link.last - p.ps.visible + 1)
-    end
-    p.ps:restore(top, sel)
+    p.ps:restore(relaidTop(L, line, sel, p.ps.visible), sel)
 end
 
 -- Whether a picture can be fetched now: a proxy, WiFi, and for TLS a set clock.
@@ -749,7 +757,7 @@ function App:showFeed(feed, opts)
     }
     page.ps = pagestate.new(L, theme.rows(self.theme))
     if opts.restore then
-        page.ps:restore(restoreTop(L, opts.restore, self.theme.fontName, false), opts.restore.sel)
+        page.ps:restore(restoreTop(L, opts.restore, self.theme.fontName, false, page.ps.visible), opts.restore.sel)
     end
     if opts.push ~= false and self.page then self:pushBack() end
     self:cancelInline(self.page)
