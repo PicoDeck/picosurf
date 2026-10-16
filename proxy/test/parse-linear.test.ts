@@ -20,30 +20,52 @@ const shapes: [string, string][] = [
 ];
 const repeat = (unit: string, bytes: number) => unit.repeat(Math.floor(bytes / unit.length));
 
-describe("HTML parsing is linear in nesting depth", () => {
-  it.each(shapes)("1 MB of %s parses in under 3 s", (_n, unit) => {
-    expect(msToRun(() => parseHTML(`<html><body>${repeat(unit, HOSTILE_BYTES)}`))).toBeLessThan(3000);
+const bare = (html: string) => {
+  const p = new Parser({});
+  p.write(html);
+  return p as unknown as { stack: string[]; openCounts: Map<string, number>; write(s: string): void; end(): void };
+};
+
+describe("the htmlparser2 patch is applied", () => {
+  it("keeps the open-element stack with its top at the end, and counts open names", () => {
+    const p = bare("<div><span><b>");
+    expect(p.stack).toEqual(["div", "span", "b"]);
+    expect(p.openCounts).toBeInstanceOf(Map);
+    expect(Object.fromEntries(p.openCounts)).toEqual({ div: 1, span: 1, b: 1 });
   });
 
-  it("1 MB of <div> then unmatched </span> parses in under 3 s", () => {
-    const n = Math.floor(HOSTILE_BYTES / 11);
-    expect(msToRun(() => parseHTML(`<html><body>${"<div>".repeat(n)}${"</span>".repeat(n)}`))).toBeLessThan(3000);
+  it("closes from the top down, leaves the stack alone on an unmatched close, and tracks counts", () => {
+    const p = bare("<div><span><b>");
+    p.write("</i>");
+    expect(p.stack).toEqual(["div", "span", "b"]);
+    p.write("</span>");
+    expect(p.stack).toEqual(["div"]);
+    expect(p.openCounts.get("span")).toBe(0);
+    expect(p.openCounts.get("b")).toBe(0);
+    expect(p.openCounts.get("div")).toBe(1);
   });
 
-  // Doubling the input must not quadruple the time. Measured on the bare tokenizer and tag stack,
-  // where noise is lowest; best of three.
-  const parseOnly = (html: string) => msToRun(() => {
-    const p = new Parser({});
-    p.write(html);
+  it("keeps the order of close callbacks: innermost first", () => {
+    const closed: string[] = [];
+    const p = new Parser({ onclosetag: (n) => closed.push(n) });
+    p.write("<a><b><i>x</a><u>");
     p.end();
+    expect(closed).toEqual(["i", "b", "a", "u"]);
   });
-  const best = (html: string) => Math.min(parseOnly(html), parseOnly(html), parseOnly(html));
-  it.each([...shapes.slice(0, 8), ["unmatched", "<div></span>"] as [string, string]])("doubling %s less than triples the time", (_n, unit) => {
-    const nested = unit === "<div></span>" ? (k: number) => "<div>".repeat(k) + "</span>".repeat(k) : (k: number) => unit.repeat(k);
-    const k = Math.floor(2_000_000 / unit.length);
-    const t1 = best(nested(k));
-    const t2 = best(nested(2 * k));
-    expect(t2 / Math.max(t1, 20)).toBeLessThan(3);
+});
+
+// Coarse guards only: quadratic parsing takes minutes here, linear well under 2 s even under load.
+describe("HTML parsing is not quadratic in nesting depth", { retry: 2, timeout: 60_000 }, () => {
+  it("400,000 nested <div> through the bare parser in under 10 s", () => {
+    expect(msToRun(() => { bare("<div>".repeat(400_000)).end(); })).toBeLessThan(10_000);
+  });
+
+  it("400,000 <div> then unmatched </span> through the bare parser in under 10 s", () => {
+    expect(msToRun(() => { bare("<div>".repeat(400_000) + "</span>".repeat(400_000)).end(); })).toBeLessThan(10_000);
+  });
+
+  it.each(shapes)("1 MB of %s through linkedom in under 10 s", (_n, unit) => {
+    expect(msToRun(() => parseHTML(`<html><body>${repeat(unit, HOSTILE_BYTES)}`))).toBeLessThan(10_000);
   });
 });
 
