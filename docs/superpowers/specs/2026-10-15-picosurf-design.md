@@ -330,10 +330,10 @@ as below.
 
 | Key | Action |
 |---|---|
-| Up / Down | scroll one row |
-| Left / Right, Space | page up / page down |
-| Tab / Shift+Tab | select the next / previous link among visible rows; a link is always selected while one is on screen: a page opens with its topmost visible link selected, and when scrolling moves the selection off screen (either way) the topmost visible link is selected, preferring one that starts on screen over the tail of a wrapped link; a wrapped link highlights all its rows |
-| Enter | open the selected link (does nothing when no link is on screen) |
+| Up / Down | select the previous / next link (in page order) if it is on screen or within 3 rows of the screen's edge, scrolling just enough to show it whole; otherwise scroll one row. A list is walked link by link, text scrolls, and a link coming into view is picked up on the way, in either direction. A selection scrolled off screen this way is dropped |
+| Left / Right, Space | page up / page down; when the selection leaves the screen, the topmost visible link is selected, preferring one that starts on screen over the tail of a wrapped link |
+| Tab / Shift+Tab | select the next / previous link among visible rows, wrapping round; a wrapped link highlights all its rows. A page opens with its topmost visible link selected |
+| Enter | open the selected link (does nothing when none is selected) |
 | 0-9 | build a link number, shown in the footer (`Link: 12_`); Enter opens `[n]`; Backspace deletes a digit; Esc clears the number |
 | Backspace / Esc (no number being typed) | Back; on the first page in the stack, go Home; on Home, Esc exits |
 | F1 | Go: `ui.textInput("Go to:")`; `https://` added when there's no scheme; input with spaces → toast `Not a URL (search isn't supported yet)` |

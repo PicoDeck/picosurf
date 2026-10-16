@@ -62,6 +62,48 @@ function M:page(dir)
     return self:scroll(dir * math.max(1, self.visible - 1))
 end
 
+-- How far past the screen's edge Up/Down look for the next link, in rows.
+M.NEAR = 3
+
+-- Up (dir -1) / Down (dir 1): select the next link in that direction if it is
+-- on screen or within NEAR rows of the edge, scrolling just enough to show it
+-- whole; with none, scroll one row. So a list is walked link by link and text
+-- scrolls, and a link scrolling into view is picked up on the way, either way.
+-- A selection that scrolls off screen is dropped. Returns whether anything moved.
+function M:step(dir)
+    local links, top, bottom = self.L.links, self.top, self:lastVisible()
+    local cur = (self.sel and isVisible(self, self.sel)) and self.sel or nil
+    local target
+    if dir > 0 then
+        for k = cur and cur + 1 or 1, #links do
+            local link = links[k]
+            if link.first > bottom + M.NEAR then break end
+            if link.first >= top then target = k; break end
+        end
+    else
+        for k = cur and cur - 1 or #links, 1, -1 do
+            local link = links[k]
+            if link.last < top - M.NEAR then break end
+            if link.last <= bottom then target = k; break end
+        end
+    end
+    if target then
+        local link = links[target]
+        local t = top
+        if link.last > bottom then t = math.min(link.first, link.last - self.visible + 1) end
+        if link.first < t then t = link.first end
+        self.top = math.max(1, math.min(self:maxTop(), t))
+        local moved = target ~= self.sel or self.top ~= top
+        self.sel = target
+        return moved
+    end
+    local t = math.max(1, math.min(self:maxTop(), top + dir))
+    if t == top then return false end
+    self.top = t
+    if self.sel and not isVisible(self, self.sel) then self.sel = nil end
+    return true
+end
+
 function M:nextLink(dir)
     local vis = self:visibleLinks()
     if #vis == 0 then return false end

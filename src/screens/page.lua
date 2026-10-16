@@ -72,9 +72,9 @@ function S.key(app, action, arg)
             if link then return app:followLink(link) end
         end
     elseif action == "up" then
-        ps:scroll(-1)
+        ps:step(-1) -- the previous link if one is near, else scroll a row
     elseif action == "down" then
-        ps:scroll(1)
+        ps:step(1)
     elseif action == "left" then
         ps:page(-1)
     elseif action == "right" or action == "space" then

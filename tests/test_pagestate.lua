@@ -13,7 +13,56 @@ local function page()
     return pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), 40), 10)
 end
 
+-- One link per row (a feed list): rows 1-30 are links [1]..[30].
+local function list()
+    local parts = {}
+    for i = 1, 30 do parts[i] = "=> https://a.test/" .. i .. " item " .. i end
+    return pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), 40), 10)
+end
+
+-- Text with links on rows 2 and 5 and nothing else until row 40.
+local function sparse()
+    local parts = {}
+    for i = 1, 40 do parts[i] = "line " .. i end
+    parts[2] = "=> https://a.test/1 one"
+    parts[5] = "=> https://a.test/2 two"
+    return pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), 40), 10)
+end
+
 return {
+    arrows_walk_a_list_link_by_link = function()
+        local ps = list()
+        T.eq(ps.sel, 1)
+        for _ = 1, 9 do ps:step(1) end
+        T.eq(ps.sel, 10); T.eq(ps.top, 1, "all on the first screen: no scrolling")
+        ps:step(1)
+        T.eq(ps.sel, 11); T.eq(ps.top, 2, "the next item is scrolled into view")
+        for _ = 1, 9 do ps:step(-1) end
+        T.eq(ps.sel, 2); T.eq(ps.top, 2)
+        ps:step(-1)
+        T.eq(ps.sel, 1); T.eq(ps.top, 1, "the previous item is scrolled into view")
+        T.eq(ps:step(-1), false, "nothing above the first item")
+    end,
+    arrows_scroll_text_and_pick_up_links_both_ways = function()
+        local ps = sparse()
+        T.eq(ps.sel, 1)
+        ps:step(1); T.eq(ps.sel, 2); T.eq(ps.top, 1)
+        ps:step(1); T.eq(ps.sel, 2); T.eq(ps.top, 2, "no link below: scroll a row")
+        for _ = 1, 18 do ps:step(1) end
+        T.eq(ps.top, 20); T.eq(ps.sel, nil, "the links scrolled away")
+        while ps.sel == nil do ps:step(-1) end
+        T.eq(ps.sel, 2, "scrolling back up selects the last link as it comes near")
+        T.eq(ps.top, 5, "and shows it")
+        ps:step(-1); T.eq(ps.sel, 1); T.eq(ps.top, 2)
+        ps:step(-1); T.eq(ps.sel, 1); T.eq(ps.top, 1, "then scrolls to the top")
+    end,
+    arrows_reach_the_first_link_after_scrolling = function()
+        local ps = list()
+        ps:page(1); ps:page(1) -- rows 19-28
+        T.eq(ps.sel, 19)
+        for _ = 1, 18 do ps:step(-1) end
+        T.eq(ps.sel, 1); T.eq(ps.top, 1)
+    end,
     scrolling_is_clamped = function()
         local ps = page()
         T.eq(ps:maxTop(), 21)

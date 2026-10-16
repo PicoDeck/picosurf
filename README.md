@@ -14,10 +14,10 @@ Read the web and RSS/Atom feeds on a [PicoDeck](https://picodeck.net) PicoCalc. 
 ## Keys
 | Key | On a page | On Home |
 |---|---|---|
-| Up / Down | scroll a row | move in the list |
+| Up / Down | select the previous / next link when one is on screen or just past its edge; otherwise scroll a row | move in the list |
 | Left / Right | page up / down | switch tab |
 | Space | page down | |
-| Tab / Shift+Tab | select the next / previous link on screen (the topmost link on screen is selected as you scroll) | |
+| Tab / Shift+Tab | select the next / previous link on screen, wrapping round | |
 | Enter | open the selected link | open |
 | digits, then Enter | open link `[n]` (Backspace deletes a digit, Esc clears the number) | |
 | Backspace / Esc | back (on the first page: Home) | Esc: quit, or stop a refresh |
