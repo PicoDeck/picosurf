@@ -184,6 +184,12 @@ describe("dated lists laid out by CSS", () => {
   it("keeps punctuation after a time attached", () => {
     expect(gmi("<p>Posted <time>Jan 1</time>, by me</p>")).toBe("Posted Jan 1, by me\n");
   });
+  it("keeps a range of times on one line", () => {
+    expect(gmi("<p>Open <time>9:00</time> to <time>17:00</time> daily</p>")).toBe("Open 9:00 to 17:00 daily\n");
+  });
+  it("keeps a published/updated pair on one line", () => {
+    expect(gmi("<p>Published <time>Jan 1</time>, updated <time>Feb 2</time></p>")).toBe("Published Jan 1, updated Feb 2\n");
+  });
   it("leaves a single inline time on one line", () => {
     expect(gmi("<p>Posted <time>Jan 1</time> by me</p>")).toBe("Posted Jan 1 by me\n");
   });

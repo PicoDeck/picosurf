@@ -14,7 +14,7 @@ type Kind = "heading" | "para" | "item" | "quote" | "pre" | "table" | "link" | "
 interface Block { kind: Kind; lines: string[]; group: number }
 interface LinkRef { url: string; label: string }
 interface Image { src: string; alt: string; href: string | null }
-interface Inline { parts: Array<string | LinkRef>; images: Image[]; bare: LinkRef[]; times: number }
+interface Inline { parts: Array<string | LinkRef>; images: Image[]; bare: LinkRef[]; timeAt: number }
 
 /** Deeper nesting than this is flattened to its text, so hostile pages cannot overflow the stack. */
 const MAX_DEPTH = 200;
@@ -52,7 +52,7 @@ export function toGemtext(root: Element, opts: ConvertOptions): string {
 const tagOf = (el: Element) => el.tagName.toLowerCase();
 const isElement = (n: Node): n is Element => n.nodeType === ELEMENT;
 const isRef = (p: string | LinkRef): p is LinkRef => typeof p !== "string";
-const emptyInline = (): Inline => ({ parts: [], images: [], bare: [], times: 0 });
+const emptyInline = (): Inline => ({ parts: [], images: [], bare: [], timeAt: -1 });
 
 function isHidden(el: Element): boolean {
   return (
@@ -243,7 +243,7 @@ class Converter {
     for (const tr of Array.from(el.querySelectorAll("tr"))) {
       const inl = emptyInline();
       const cells = Array.from(tr.children).filter((c) => /^t[hd]$/.test(tagOf(c)) && !skipped(c));
-      inl.times = -Infinity; // a row stays one line, whatever it holds
+      inl.timeAt = Infinity; // a row stays one line, whatever it holds
       cells.forEach((cell, i) => {
         if (i > 0) inl.parts.push(" | ");
         this.inline(Array.from(cell.childNodes), inl);
@@ -278,10 +278,12 @@ class Converter {
       const tag = tagOf(node);
       if (tag === "br") into.parts.push(BR);
       else if (tag === "time" && href === null) {
-        // Sites lay out dated lists with CSS: the second and later <time> in a text block starts a new line.
-        if (into.times++ > 0) into.parts.push(BR);
+        // Sites lay out dated lists with CSS (time, link, time, link): a <time> after a link that follows an earlier <time> starts a new line.
+        // Ranges and pairs with no link between the times stay on one line.
+        if (into.timeAt >= 0 && into.parts.slice(into.timeAt).some(isRef)) into.parts.push(BR);
         this.inline(Array.from(node.childNodes), into, href);
         if (node.nextSibling && isElement(node.nextSibling)) into.parts.push(" ");
+        if (into.timeAt !== Infinity) into.timeAt = into.parts.length;
       }
       else if (tag === "img") {
         const img = this.image(node, href);

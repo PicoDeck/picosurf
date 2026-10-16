@@ -189,7 +189,7 @@ Page header:
 | inline `code` | text kept in backticks |
 | `em`, `strong`, other inline formatting | text only |
 | `table` | one text line per row, cells joined with ` \| ` |
-| a second or later `<time>` in a text block | starts a new text line (sites lay out dated lists with CSS); a `<time>` directly followed by an element gets a space after it |
+| a `<time>` after a link that follows an earlier `<time>` in the same text block | starts a new text line (sites lay out dated lists with CSS: time, link, time, link); times with no link between them (ranges, published/updated pairs) stay on one line; a `<time>` directly followed by an element gets a space after it |
 | `img` | `=> <absolute src> [IMG] <alt or "image">`; from `srcset`, the candidate closest to 640w |
 | `figcaption` | a text line after the image line |
 | inline `a` | link text stays in the block, followed by ` [n]`; after the block, one `=> <url> [n] <link text>` line per link. `n` is unique across the page; repeated URLs within a page reuse their number. |
