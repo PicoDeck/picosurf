@@ -14,6 +14,10 @@
 //        their caps let through (the most heap a JPEG can take).
 // mixed  one runtime: an image of each kind at its cap, twice over, so every
 //        codec reaches its high-water mark: a warm isolate's steady state.
+// failures  one runtime: a valid progressive JPEG at its cap, eight 8 MP CMYK
+//        JPEGs (refused before decoding), eight broken progressive JPEGs at
+//        their cap (mozjpeg gives up partway, costing the decoder), then a
+//        valid 8 MP JPEG. The status column shows 415 and 503 refusals.
 //
 // Images over their cap (resizer.maxPixels) are marked: the handler would
 // refuse them with 413.
@@ -99,6 +103,15 @@ async function main(): Promise<void> {
       const progressive = await images.jpegAtCap("progressive 4:4:4 JPEG", { progressive: true, chromaSubsampling: "4:4:4", quality: 95 });
       const steps = [...times(10, photo8), ...times(10, photo4), ...times(10, noisiest), ...times(10, progressive)];
       await measure(start, "JPEGs in a row", [warmJpeg], steps);
+      await measure(start, "control: the same inputs, received but not resized", [warmJpeg], steps.map(bodyOnly));
+    }
+    if (want("failures")) {
+      const valid = await images.jpegAtCap("progressive JPEG", { progressive: true });
+      const cmyk = await images.jpeg("8 MP CMYK JPEG", ...dims(8), "photo", true);
+      const broken = await images.broken(valid, "broken progressive JPEG at its cap");
+      const photo8 = await images.jpeg("8 MP photo JPEG", ...dims(8));
+      const steps = [valid, ...times(8, cmyk), ...times(8, broken), photo8];
+      await measure(start, "failing JPEGs", [warmJpeg], steps);
       await measure(start, "control: the same inputs, received but not resized", [warmJpeg], steps.map(bodyOnly));
     }
     if (want("mixed")) {
@@ -240,9 +253,18 @@ class Images {
     return sharp(raw, { raw: { width, height, channels: 3 } });
   }
 
-  async jpeg(label: string, width: number, height: number, kind: "photo" | "noise" = "photo"): Promise<Step> {
+  async jpeg(label: string, width: number, height: number, kind: "photo" | "noise" = "photo", cmyk = false): Promise<Step> {
     const img = await this.sharp(width, height, kind);
-    return this.save(`${label}`, "jpeg", await img.jpeg({ quality: 85 }).toBuffer());
+    return this.save(`${label}`, "jpeg", await (cmyk ? img.toColourspace("cmyk") : img).jpeg({ quality: 85 }).toBuffer());
+  }
+
+  /** The JPEG with its last scan naming a component the frame lacks: mozjpeg gives up (exit()) partway through. */
+  async broken(step: Step, label: string): Promise<Step> {
+    const b = new Uint8Array(readFileSync(step.file));
+    let last = -1;
+    for (let i = 2; i + 1 < b.length; i++) if (b[i] === 0xff && b[i + 1] === 0xda) last = i;
+    b[last + 5] = 0x77; // the scan's first component selector
+    return this.save(label, "jpeg", b);
   }
 
   async png(label: string, kind: "photo" | "screenshot" | "flat" | "interlaced16", width: number, height: number): Promise<Step> {
@@ -384,8 +406,8 @@ export default {
     let status = 200;
     try {
       await resizer.resize(body, type);
-    } catch {
-      status = 415;
+    } catch (e) {
+      status = typeof e?.status === "number" && e.status >= 400 ? e.status : 415; // a ProxyError's own, as the handler does
     }
     return new Response(null, { status, headers: { "x-ms": String(Date.now() - t0), "x-wasm": wasmSizes() } });
   },
@@ -469,8 +491,9 @@ async function serve(): Promise<void> {
     let status = 200;
     try {
       await resizer.resize(bytes, type as ImageType);
-    } catch {
-      status = 415;
+    } catch (e) {
+      const own = (e as { status?: unknown })?.status;
+      status = typeof own === "number" && own >= 400 ? own : 415; // a ProxyError's own, as the handler does
     }
     process.stdout.write(`${JSON.stringify({ status, ms: Date.now() - t0, wasm: wasmSizes() })}\n`);
   }
