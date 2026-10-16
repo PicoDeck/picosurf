@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import sharp, { type JpegOptions, type Sharp } from "sharp";
 import { handleRequest } from "../src/handler";
-import { JPEG_HEAP_MAX, JPEG_MAX_PIXELS, PNG_STREAM_MAX_PIXELS, WASM_MAX_PIXELS, createWasmResizer, jpegMaxPixels } from "../src/img-wasm";
+import {
+  JPEG_HEAP_MAX,
+  JPEG_MAX_PIXELS,
+  PNG_STREAM_MAX_PIXELS,
+  WASM_MAX_PIXELS,
+  WEBP_HEAP_MAX,
+  createWasmResizer,
+  jpegMaxPixels,
+  webpMaxPixels,
+} from "../src/img-wasm";
 import { jpegInfo } from "../src/imgsize";
 import { PNG_MAX_SIDE } from "../src/png-stream";
 import { fakeFetch } from "./helpers/fakefetch";
@@ -112,6 +121,23 @@ describe("jpegMaxPixels", () => {
   });
 });
 
+describe("webpMaxPixels", () => {
+  const MiB = 1024 * 1024;
+  /** The model: the heap holds the file twice and 8 bytes a pixel (RGBA out, and libwebp's own buffers); 50% slack for reuse. */
+  const model = (bytes: Uint8Array) => Math.min(WASM_MAX_PIXELS, Math.floor((WEBP_HEAP_MAX / 1.5 - MiB - 2 * bytes.length) / 8));
+
+  it("allows WASM_MAX_PIXELS for a small WebP", () => {
+    expect(model(imageFixture("photo.webp"))).toBe(WASM_MAX_PIXELS);
+    expect(webpMaxPixels(imageFixture("photo.webp"))).toBe(WASM_MAX_PIXELS);
+  });
+
+  it("allows fewer pixels for a bigger file, which the heap holds twice", () => {
+    const big = concat(imageFixture("photo.webp"), new Uint8Array(5 * MiB));
+    expect(webpMaxPixels(big)).toBe(model(big));
+    expect(webpMaxPixels(big)).toBeLessThan(WASM_MAX_PIXELS);
+  });
+});
+
 describe("wasm resizer pixel caps", () => {
   it("caps each kind of image by how its decoder uses memory", async () => {
     const resizer = make();
@@ -121,7 +147,7 @@ describe("wasm resizer pixel caps", () => {
     expect(resizer.maxPixels(imageFixture("photo.png"), "png")).toBe(PNG_STREAM_MAX_PIXELS);
     expect(resizer.maxPixels(new Uint8Array(interlaced), "png")).toBe(PNG_STREAM_MAX_PIXELS);
     expect(resizer.maxPixels(concat(SIGNATURE, ihdr(PNG_MAX_SIDE + 1, 1, 2)), "png")).toBe(0);
-    expect(resizer.maxPixels(imageFixture("photo.webp"), "webp")).toBe(WASM_MAX_PIXELS);
+    expect(resizer.maxPixels(imageFixture("photo.webp"), "webp")).toBe(webpMaxPixels(imageFixture("photo.webp")));
     expect(resizer.maxPixels(imageFixture("photo.gif"), "gif")).toBe(WASM_MAX_PIXELS);
     expect([JPEG_MAX_PIXELS, WASM_MAX_PIXELS, PNG_STREAM_MAX_PIXELS]).toEqual([8_000_000, 2_000_000, 100_000_000]);
   });

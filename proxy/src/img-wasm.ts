@@ -71,11 +71,27 @@ export function jpegMaxPixels(bytes: Uint8Array): number {
  */
 export const PNG_STREAM_MAX_PIXELS = 100_000_000;
 
-/**
- * WebP and GIF: WebP decodes whole in its long-lived WASM decoder, whose
- * heap keeps its high-water mark, GIF in JS (omggif).
- */
+/** The most pixels a WebP or GIF may have. GIFs decode whole in JS (omggif). */
 export const WASM_MAX_PIXELS = 2_000_000;
+
+/**
+ * The most the WebP decoder's WASM heap may grow to, which it keeps for the
+ * life of the isolate, like the JPEG decoder's: each WebP may have as many
+ * pixels as fit (webpMaxPixels).
+ */
+export const WEBP_HEAP_MAX = 32 * MiB;
+
+/**
+ * The most pixels this WebP may have for its decode to stay within
+ * WEBP_HEAP_MAX, and never more than WASM_MAX_PIXELS. libwebp's heap holds the
+ * file twice and 8 bytes a pixel (the RGBA out, and its own buffers), lossy
+ * or lossless; measured to within 2%. A heap reused across WebPs needed up to
+ * half as much again as the largest alone, hence the 1.5.
+ */
+export function webpMaxPixels(bytes: Uint8Array): number {
+  const room = WEBP_HEAP_MAX / 1.5 - MiB - 2 * bytes.length;
+  return Math.max(0, Math.min(WASM_MAX_PIXELS, Math.floor(room / 8)));
+}
 
 export interface WasmModules {
   jpegDec: WebAssembly.Module;
@@ -152,6 +168,7 @@ export function createWasmResizer(mods: WasmModules): Resizer {
   return {
     maxPixels(bytes, type) {
       if (type === "jpeg") return jpegMaxPixels(bytes);
+      if (type === "webp") return webpMaxPixels(bytes);
       if (type === "png") {
         const size = imageSize(bytes, "png");
         return size && Math.max(size.width, size.height) > PNG_MAX_SIDE ? 0 : PNG_STREAM_MAX_PIXELS;
