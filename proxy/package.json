@@ -14,7 +14,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "fixtures:pages": "sh scripts/fetch-fixtures.sh",
     "fixtures:images": "tsx scripts/make-image-fixtures.ts",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package --error-on-fail"
   },
   "dependencies": {
     "@jsquash/jpeg": "1.6.0",

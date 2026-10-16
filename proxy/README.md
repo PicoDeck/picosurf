@@ -91,3 +91,4 @@ The npm commands need Node 22 or newer. `npm run dev` reads `PROXY_TOKEN` from a
 - `npm start`: the Node server
 - `npm run smoke`: fetches the live smoke list through the handler
 - `npm run fixtures:pages` / `npm run fixtures:images`: regenerate test fixtures
+- `patches/htmlparser2+10.1.0.patch` keeps htmlparser2's tag stack linear (its own is quadratic in nesting depth). `npm ci` applies it and fails if it no longer applies. When bumping htmlparser2 or linkedom, port the change to the new `dist/*/Parser.js`, run `npx patch-package htmlparser2`, and keep `test/parse-linear.test.ts` green.
