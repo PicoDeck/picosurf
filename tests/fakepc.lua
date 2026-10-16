@@ -18,7 +18,7 @@ function M.new()
     local F = {
         texts = {}, textFonts = {}, logs = {}, toasts = {}, menu = {}, events = {}, inputs = {}, confirms = {},
         requests = {}, pending = {}, config = {}, conns = 0, made = {}, decoded = {},
-        rects = {}, imageDraws = {},
+        rects = {}, imageDraws = {}, fontFiles = {}, missingFonts = {}, nextFontId = 4,
         netStatus = 1, synced = true, epoch = 1792000000, ms = 0,
     }
     local fs, files = fakes.fs()
@@ -51,6 +51,34 @@ function M.new()
         FONT_6X8 = 0, FONT_8X12 = 1, FONT_SCIENTIFICA = 2, FONT_SCIENTIFICA_BOLD = 3,
     }
     function display.rgb(r, g, b) return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3) end
+    -- Fake advances: built-in fonts are fixed-width (6 px, 8 for 8x12); a
+    -- loaded font is proportional: narrow characters 3 px, wide ones 9, the
+    -- rest 6, and one wider each in a font whose file name has "-bold".
+    local NARROW, WIDE = "il.,:;'!|", "mwMW"
+    local function advance(id, c)
+        if id == display.FONT_8X12 then return 8 end
+        if id < 4 then return 6 end
+        local a = NARROW:find(c, 1, true) and 3 or (WIDE:find(c, 1, true) and 9 or 6)
+        if F.fontFiles[id]:find("-bold", 1, true) then a = a + 1 end
+        return a
+    end
+    function F.textWidthIn(id, t)
+        local w = 0
+        for c in t:gmatch(".") do w = w + advance(id, c) end
+        return w
+    end
+    function display.textWidth(t) return F.textWidthIn(F.font, t) end
+    function display.loadFont(path)
+        if F.missingFonts[path] then return nil, "cannot read file" end
+        local id = F.nextFontId
+        F.nextFontId = id + 1
+        F.fontFiles[id] = path
+        return id
+    end
+    function display.unloadFont(id)
+        if F.font == id then F.font = display.FONT_6X8 end
+        F.fontFiles[id] = nil
+    end
     -- Every drawn string is recorded with the font current when it was drawn
     -- (F.textFonts parallels F.texts), as the firmware draws text, the header,
     -- footer, tabs and list items in the current font.
@@ -63,7 +91,7 @@ function M.new()
     function display.setFont(id) F.font = id end
     function display.getFont() return F.font end
     function display.fillRect(x, y, w, h, c) F.rects[#F.rects + 1] = { x = x, y = y, w = w, h = h, c = c } end
-    function display.drawText(_, _, t) record(t); return #t * 6 end
+    function display.drawText(_, _, t) record(t); return display.textWidth(t) end
     -- The OS draws toasts and the system menu at a flush in the current font.
     function display.flush() F.frames = (F.frames or 0) + 1; F.flushFont = F.font; F.service() end
 
