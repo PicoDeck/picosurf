@@ -5,8 +5,9 @@
 // bundled imports (worker.ts); tests compile them from node_modules.
 
 import mozjpegDec from "@jsquash/jpeg/codec/dec/mozjpeg_dec.js";
-import encodeJpeg, { init as initJpegEnc } from "@jsquash/jpeg/encode";
-import decodePng, { init as initPngDec } from "@jsquash/png/decode";
+import mozjpegEnc from "@jsquash/jpeg/codec/enc/mozjpeg_enc.js";
+import { defaultOptions as JPEG_ENCODER_DEFAULTS } from "@jsquash/jpeg/meta.js";
+import initPng, { decode as decodePng } from "@jsquash/png/codec/pkg/squoosh_png.js";
 import webpDec from "@jsquash/webp/codec/dec/webp_dec.js";
 import { GifReader } from "omggif";
 import { type Rgba, boxScale } from "./boxscale";
@@ -89,17 +90,52 @@ const JOB_MAX_WAIT_MS = 10_000;
  */
 const jobs = new Mutex(JOB_MAX_WAIT_MS);
 
-// jSquash's init functions accept (module, options?) at runtime, though their
-// .d.ts declares only options.
-type Init = (module: WebAssembly.Module) => Promise<unknown>;
-
 /** The parts of an emscripten codec factory this file uses. */
 type EmscriptenFactory = (options: {
   noInitialRun: boolean;
   instantiateWasm: (imports: WebAssembly.Imports, done: (instance: WebAssembly.Instance) => void) => WebAssembly.Exports;
-}) => Promise<{ decode(data: Uint8Array, ...options: unknown[]): unknown }>;
+}) => Promise<unknown>;
 
-/** Caches `init()`'s promise, but not a rejected one, so a failed init is tried again rather than failing the isolate for good. */
+/** An emscripten codec instance, made from its compiled module on first use, and made again after a failure. */
+class Emscripten<T> {
+  private instance: Promise<T> | null = null;
+
+  constructor(
+    private readonly factory: unknown,
+    private readonly module: WebAssembly.Module,
+  ) {}
+
+  get(): Promise<T> {
+    return (this.instance ??= this.make().catch((e) => {
+      this.instance = null;
+      throw e;
+    }));
+  }
+
+  /** Forgets the instance (after it failed); the next get() makes a new one. */
+  drop(): void {
+    this.instance = null;
+  }
+
+  private make(): Promise<T> {
+    const module = this.module;
+    return (this.factory as EmscriptenFactory)({
+      noInitialRun: true,
+      instantiateWasm(imports, done) {
+        const instance = new WebAssembly.Instance(module, imports);
+        done(instance);
+        return instance.exports;
+      },
+    }) as Promise<T>;
+  }
+}
+
+interface JpegEncoder {
+  encode(data: Uint8ClampedArray, width: number, height: number, options: typeof JPEG_ENCODER_DEFAULTS): Uint8Array;
+}
+const ENCODE = { ...JPEG_ENCODER_DEFAULTS, quality: JPEG_QUALITY, baseline: true, progressive: false };
+
+/** Caches `init()`'s promise, but not a rejected one, so a failed init is tried again for the next image. */
 function once(init: () => Promise<unknown>): () => Promise<unknown> {
   let ready: Promise<unknown> | null = null;
   return () =>
@@ -110,16 +146,17 @@ function once(init: () => Promise<unknown>): () => Promise<unknown> {
 }
 
 export function createWasmResizer(mods: WasmModules): Resizer {
-  // Created on first use. The encoder only ever sees 320x320 images, and the
-  // WASM PNG decoder only PNGs that cannot stream, under WASM_MAX_PIXELS.
-  const encoder = once(() => (initJpegEnc as unknown as Init)(mods.jpegEnc));
-  const pngDecoder = once(() => (initPngDec as unknown as Init)(mods.pngDec));
+  // Made on first use. The encoder only ever sees 320x320 images, and the
+  // WASM PNG decoder only PNGs that cannot stream, under WASM_MAX_PIXELS. The
+  // PNG decoder is wasm-bindgen's, one per isolate; its init can be retried.
+  const encoder = new Emscripten<JpegEncoder>(mozjpegEnc, mods.jpegEnc);
+  const pngDecoder = once(() => initPng(mods.pngDec));
   const decoders: Decoders = {
     jpeg: new HeapDecoder(mozjpegDec, mods.jpegDec, false), // false: ignore EXIF orientation, as jSquash does
     webp: new HeapDecoder(webpDec, mods.webpDec),
     async png(bytes) {
       await pngDecoder();
-      return decodePng(bytes.slice().buffer);
+      return decodePng(bytes);
     },
   };
 
@@ -132,13 +169,13 @@ export function createWasmResizer(mods: WasmModules): Resizer {
     resize: (bytes, type) =>
       jobs.run(async () => {
         const scaled = await decodeScaled(bytes, type, decoders);
-        await encoder();
-        const out = await encodeJpeg(new ImageData(scaled.data, scaled.width, scaled.height), {
-          quality: JPEG_QUALITY,
-          baseline: true,
-          progressive: false,
-        });
-        return new Uint8Array(out);
+        const jpeg = await encoder.get();
+        try {
+          return jpeg.encode(scaled.data, scaled.width, scaled.height, ENCODE);
+        } catch (e) {
+          encoder.drop();
+          throw e;
+        }
       }),
   };
 }
@@ -197,21 +234,18 @@ class DecodedImage {
  * are PixelSink and DecodedImage, and stay so for that instance.
  */
 export class HeapDecoder {
-  private codec: Promise<{ decode(data: Uint8Array, ...options: unknown[]): unknown }> | null = null;
-  private bound = false;
+  private readonly codec: Emscripten<{ decode(data: Uint8Array, ...options: unknown[]): unknown }>;
   private readonly options: unknown[];
+  private bound = false;
 
-  constructor(
-    private readonly factory: unknown,
-    private readonly module: WebAssembly.Module,
-    ...options: unknown[]
-  ) {
+  constructor(factory: unknown, module: WebAssembly.Module, ...options: unknown[]) {
+    this.codec = new Emscripten(factory, module);
     this.options = options;
   }
 
   /** Decodes an image whose header gave `size`, scaled to fit 320x320. */
   async decode(bytes: Uint8Array, size: Size): Promise<Rgba> {
-    const codec = await (this.codec ??= this.instantiate());
+    const codec = await this.codec.get();
     pending = { size, scaled: null };
     try {
       const decode = () => codec.decode(bytes, ...this.options) as DecodedImage | null;
@@ -221,24 +255,12 @@ export class HeapDecoder {
       // Not the size the header gave: PixelSink copied them, so scale the copy.
       return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height));
     } catch (e) {
-      this.codec = null;
+      this.codec.drop();
       this.bound = false;
       throw e;
     } finally {
       pending = null;
     }
-  }
-
-  private async instantiate() {
-    const module = this.module;
-    return (this.factory as EmscriptenFactory)({
-      noInitialRun: true,
-      instantiateWasm(imports, done) {
-        const instance = new WebAssembly.Instance(module, imports);
-        done(instance);
-        return instance.exports;
-      },
-    });
   }
 
   /** Runs an instance's first decode with PixelSink and DecodedImage in place of the globals. */

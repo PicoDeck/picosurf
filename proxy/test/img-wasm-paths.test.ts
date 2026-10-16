@@ -3,7 +3,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import decodePng from "@jsquash/png/decode";
+import { decode as decodePng } from "@jsquash/png/codec/pkg/squoosh_png.js";
 import { createWasmResizer } from "../src/img-wasm";
 import { jpegInfo } from "../src/imgsize";
 import { streamPng } from "../src/png-stream";
@@ -11,9 +11,9 @@ import { encodePng, photo } from "./helpers/png";
 import { imageFixture } from "./helpers/resizer-contract";
 import { wasmModules } from "./helpers/wasm";
 
-vi.mock("@jsquash/png/decode", async (importOriginal) => {
-  const orig = await importOriginal<typeof import("@jsquash/png/decode")>();
-  return { ...orig, default: vi.fn(orig.default) };
+vi.mock("@jsquash/png/codec/pkg/squoosh_png.js", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("@jsquash/png/codec/pkg/squoosh_png.js")>();
+  return { ...orig, decode: vi.fn(orig.decode) };
 });
 /** How many streamPng calls are running now, and the most at once. */
 const flight = vi.hoisted(() => ({ now: 0, most: 0 }));
