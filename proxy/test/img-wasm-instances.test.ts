@@ -41,10 +41,19 @@ describe("wasm resizer codec instances", () => {
     expect(created).toEqual([]);
   });
 
-  it("gives every JPEG a fresh decoder, and creates the encoder once", async () => {
+  it("creates one JPEG decoder and one encoder, and reuses them", async () => {
     await resizer.resize(imageFixture("photo.jpg"), "jpeg");
     await resizer.resize(imageFixture("photo-progressive.jpg"), "jpeg");
-    expect(count()).toEqual({ jpegDec: 2, jpegEnc: 1, pngDec: 0, webpDec: 0 });
+    await resizer.resize(imageFixture("photo.jpg"), "jpeg");
+    expect(count()).toEqual({ jpegDec: 1, jpegEnc: 1, pngDec: 0, webpDec: 0 });
+  });
+
+  it("replaces the JPEG decoder after a decode fails (mozjpeg aborts on CMYK)", async () => {
+    const cmyk = await sharp(photo(80, 60, 3), { raw: { width: 80, height: 60, channels: 3 } }).toColourspace("cmyk").jpeg().toBuffer();
+    await expect(resizer.resize(new Uint8Array(cmyk), "jpeg")).rejects.toThrow();
+    await resizer.resize(imageFixture("photo.jpg"), "jpeg");
+    await resizer.resize(imageFixture("photo.jpg"), "jpeg");
+    expect(count().jpegDec).toBe(1);
   });
 
   it("streams an 8-bit PNG with no decoder instance", async () => {
@@ -52,10 +61,10 @@ describe("wasm resizer codec instances", () => {
     expect(count()).toEqual({ jpegDec: 0, jpegEnc: 0, pngDec: 0, webpDec: 0 });
   });
 
-  it("creates the WebP decoder only for WebP, fresh for each image", async () => {
+  it("creates the WebP decoder only for WebP, once", async () => {
     await resizer.resize(imageFixture("photo.webp"), "webp");
     await resizer.resize(imageFixture("photo-alpha.webp"), "webp");
-    expect(count()).toEqual({ jpegDec: 0, jpegEnc: 0, pngDec: 0, webpDec: 2 });
+    expect(count()).toEqual({ jpegDec: 0, jpegEnc: 0, pngDec: 0, webpDec: 1 });
   });
 
   it("creates the WASM PNG decoder only for a PNG that cannot stream", async () => {

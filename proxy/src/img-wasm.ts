@@ -12,6 +12,7 @@ import { GifReader } from "omggif";
 import { type Rgba, boxScale } from "./boxscale";
 import type { ImageType } from "./content";
 import { JPEG_QUALITY, type Resizer, fitWithin } from "./img";
+import { type Size, imageSize } from "./imgsize";
 import { Mutex } from "./mutex";
 import { canStreamPng, streamPng } from "./png-stream";
 
@@ -96,24 +97,28 @@ type Init = (module: WebAssembly.Module) => Promise<unknown>;
 type EmscriptenFactory = (options: {
   noInitialRun: boolean;
   instantiateWasm: (imports: WebAssembly.Imports, done: (instance: WebAssembly.Instance) => void) => WebAssembly.Exports;
-}) => Promise<{ decode(data: Uint8Array, ...options: unknown[]): ImageData | null }>;
+}) => Promise<{ decode(data: Uint8Array, ...options: unknown[]): unknown }>;
 
-interface Decoders {
-  jpeg(bytes: Uint8Array): Promise<ImageData>;
-  png(bytes: Uint8Array): Promise<ImageData>;
-  webp(bytes: Uint8Array): Promise<ImageData>;
+/** Caches `init()`'s promise, but not a rejected one, so a failed init is tried again rather than failing the isolate for good. */
+function once(init: () => Promise<unknown>): () => Promise<unknown> {
+  let ready: Promise<unknown> | null = null;
+  return () =>
+    (ready ??= init().catch((e) => {
+      ready = null;
+      throw e;
+    }));
 }
 
 export function createWasmResizer(mods: WasmModules): Resizer {
-  // Instantiated on first use. The encoder only ever sees 320x320 images, and
-  // the WASM PNG decoder only PNGs that cannot stream, under WASM_MAX_PIXELS.
-  let encoder: Promise<unknown> | null = null;
-  let pngDecoder: Promise<unknown> | null = null;
+  // Created on first use. The encoder only ever sees 320x320 images, and the
+  // WASM PNG decoder only PNGs that cannot stream, under WASM_MAX_PIXELS.
+  const encoder = once(() => (initJpegEnc as unknown as Init)(mods.jpegEnc));
+  const pngDecoder = once(() => (initPngDec as unknown as Init)(mods.pngDec));
   const decoders: Decoders = {
-    jpeg: (bytes) => decodeFresh(mozjpegDec, mods.jpegDec, bytes, false), // false: ignore EXIF orientation, as jSquash does
-    webp: (bytes) => decodeFresh(webpDec, mods.webpDec, bytes),
+    jpeg: new HeapDecoder(mozjpegDec, mods.jpegDec, false), // false: ignore EXIF orientation, as jSquash does
+    webp: new HeapDecoder(webpDec, mods.webpDec),
     async png(bytes) {
-      await (pngDecoder ??= (initPngDec as unknown as Init)(mods.pngDec));
+      await pngDecoder();
       return decodePng(bytes.slice().buffer);
     },
   };
@@ -127,7 +132,7 @@ export function createWasmResizer(mods: WasmModules): Resizer {
     resize: (bytes, type) =>
       jobs.run(async () => {
         const scaled = await decodeScaled(bytes, type, decoders);
-        await (encoder ??= (initJpegEnc as unknown as Init)(mods.jpegEnc));
+        await encoder();
         const out = await encodeJpeg(new ImageData(scaled.data, scaled.width, scaled.height), {
           quality: JPEG_QUALITY,
           baseline: true,
@@ -138,40 +143,138 @@ export function createWasmResizer(mods: WasmModules): Resizer {
   };
 }
 
-/**
- * Decodes with a fresh instance of an emscripten decoder. WASM memory never
- * shrinks, so a long-lived decoder would hold on to the largest image's heap
- * for the life of the isolate; a fresh one is garbage as soon as this returns.
- */
-async function decodeFresh(factory: unknown, module: WebAssembly.Module, bytes: Uint8Array, ...options: unknown[]): Promise<ImageData> {
-  const codec = await (factory as EmscriptenFactory)({
-    noInitialRun: true,
-    instantiateWasm(imports, done) {
-      const instance = new WebAssembly.Instance(module, imports);
-      done(instance);
-      return instance.exports;
-    },
-  });
-  const image = codec.decode(bytes, ...options);
-  if (!image) throw new Error("Decoding error");
-  return image;
+interface Decoders {
+  jpeg: HeapDecoder;
+  webp: HeapDecoder;
+  png(bytes: Uint8Array): Promise<ImageData>;
 }
 
-/** Decodes and scales to fit 320x320: 8-bit PNGs stream, everything else decodes whole first. */
+const RealUint8ClampedArray = Uint8ClampedArray;
+
+/** What the current HeapDecoder.decode() expects, and what its PixelSink made of the pixels. */
+let pending: { size: Size; scaled: Rgba | null } | null = null;
+
+/**
+ * Stands in for Uint8ClampedArray inside the emscripten decoders, which call
+ * it once per decode with a view of the decoded RGBA pixels in their heap.
+ * While a HeapDecoder is waiting for pixels of the expected size, it scales
+ * them there and then, while the view is valid, and returns an empty array;
+ * otherwise it copies, as Uint8ClampedArray would.
+ */
+function PixelSink(this: unknown, view: Uint8Array): Uint8ClampedArray {
+  const p = pending;
+  if (p && !p.scaled && view.length === p.size.width * p.size.height * 4) {
+    p.scaled = boxScale(view, p.size.width, p.size.height, fitWithin(p.size.width, p.size.height));
+    return new RealUint8ClampedArray(0);
+  }
+  return new RealUint8ClampedArray(view);
+}
+
+/** Stands in for ImageData inside the emscripten decoders. */
+class DecodedImage {
+  constructor(
+    readonly data: Uint8ClampedArray,
+    readonly width: number,
+    readonly height: number,
+  ) {}
+}
+
+/**
+ * An emscripten decoder (mozjpeg, libwebp) kept for the life of the isolate,
+ * which scales each image straight out of its WASM heap.
+ *
+ * One instance, reused: WASM memory never shrinks and is freed only when the
+ * garbage collector gets to the instance, which workerd may not do for many
+ * requests (ten 8 MP JPEGs with a fresh instance each left 600 MiB). The one
+ * heap stays at its high-water mark instead, which the pixel cap bounds. An
+ * instance whose decode failed (mozjpeg aborts on CMYK) may be broken, so it
+ * is dropped and the next image gets a new one.
+ *
+ * No copy of the pixels: jSquash's C++ returns
+ * `ImageData(Uint8ClampedArray(typed_memory_view(pixels)), w, h)`, a full RGBA
+ * copy out of the heap. embind looks both names up on globalThis at an
+ * instance's first decode and keeps what it finds, so for that one call they
+ * are PixelSink and DecodedImage, and stay so for that instance.
+ */
+export class HeapDecoder {
+  private codec: Promise<{ decode(data: Uint8Array, ...options: unknown[]): unknown }> | null = null;
+  private bound = false;
+  private readonly options: unknown[];
+
+  constructor(
+    private readonly factory: unknown,
+    private readonly module: WebAssembly.Module,
+    ...options: unknown[]
+  ) {
+    this.options = options;
+  }
+
+  /** Decodes an image whose header gave `size`, scaled to fit 320x320. */
+  async decode(bytes: Uint8Array, size: Size): Promise<Rgba> {
+    const codec = await (this.codec ??= this.instantiate());
+    pending = { size, scaled: null };
+    try {
+      const decode = () => codec.decode(bytes, ...this.options) as DecodedImage | null;
+      const image = this.bound ? decode() : this.bind(decode);
+      if (!image) throw new Error("Decoding error");
+      if (pending.scaled) return pending.scaled;
+      // Not the size the header gave: PixelSink copied them, so scale the copy.
+      return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height));
+    } catch (e) {
+      this.codec = null;
+      this.bound = false;
+      throw e;
+    } finally {
+      pending = null;
+    }
+  }
+
+  private async instantiate() {
+    const module = this.module;
+    return (this.factory as EmscriptenFactory)({
+      noInitialRun: true,
+      instantiateWasm(imports, done) {
+        const instance = new WebAssembly.Instance(module, imports);
+        done(instance);
+        return instance.exports;
+      },
+    });
+  }
+
+  /** Runs an instance's first decode with PixelSink and DecodedImage in place of the globals. */
+  private bind<T>(decode: () => T): T {
+    const g = globalThis as Record<string, unknown>;
+    const saved = [g.Uint8ClampedArray, g.ImageData];
+    g.Uint8ClampedArray = PixelSink;
+    g.ImageData = DecodedImage;
+    try {
+      const image = decode();
+      this.bound = true;
+      return image;
+    } finally {
+      g.Uint8ClampedArray = saved[0];
+      g.ImageData = saved[1];
+    }
+  }
+}
+
+/** Decodes and scales to fit 320x320: 8-bit PNGs stream, JPEG and WebP scale in their decoder, the rest decode whole first. */
 async function decodeScaled(bytes: Uint8Array, type: ImageType, decoders: Decoders): Promise<Rgba> {
   if (type === "png" && canStreamPng(bytes)) return streamPng(bytes);
+  if (type === "jpeg" || type === "webp") {
+    const size = imageSize(bytes, type);
+    if (!size) throw new Error("Could not read the image size");
+    return decoders[type].decode(bytes, size);
+  }
   const image = await decode(bytes, type, decoders);
   return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height));
 }
 
-async function decode(bytes: Uint8Array, type: ImageType, decoders: Decoders): Promise<ImageData> {
+/** Decodes a PNG that cannot stream, or a GIF, whole. */
+async function decode(bytes: Uint8Array, type: "png" | "gif", decoders: Decoders): Promise<ImageData> {
   switch (type) {
-    case "jpeg":
-      return decoders.jpeg(bytes);
     case "png":
       return decoders.png(bytes);
-    case "webp":
-      return decoders.webp(bytes);
     case "gif": {
       const reader = new GifReader(bytes);
       // omggif allocates for the frame descriptor's size, which the handler's

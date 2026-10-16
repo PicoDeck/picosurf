@@ -4,6 +4,12 @@
 
 import type { Size } from "./imgsize";
 
+/**
+ * Uint8ClampedArray as it was at load: img-wasm.ts briefly puts a stand-in in
+ * its place on globalThis while a decoder calls back into this file.
+ */
+const Clamped = Uint8ClampedArray;
+
 /** RGBA pixels, the shape the JPEG encoder takes. */
 export interface Rgba {
   data: Uint8ClampedArray<ArrayBuffer>;
@@ -90,7 +96,7 @@ export class BoxScaler {
     const { width, height, sums } = this;
     // Every output pixel covers the same source area.
     const perArea = (width * height) / (this.srcWidth * this.srcHeight);
-    const data = new Uint8ClampedArray(width * height * 4);
+    const data = new Clamped(width * height * 4);
     for (let p = 0, s = 0; p < data.length; p += 4, s += 3) {
       data[p] = sums[s] * perArea;
       data[p + 1] = sums[s + 1] * perArea;
