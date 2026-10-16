@@ -1,11 +1,14 @@
-// Streams an 8-bit, non-interlaced PNG through the platform's
-// DecompressionStream and unfilters it one row at a time into a BoxScaler, so
-// memory is the PNG bytes, two rows and the small output whatever the image's
-// pixel count (spec 5.8). Other PNGs (16-bit, under 8 bits, interlaced) go to
-// the WASM decoder (img-wasm.ts).
+// Decodes an 8-bit, non-interlaced PNG a row at a time: inflate.ts hands the
+// image data over 16 KiB at a time from a fixed window, each row is unfiltered
+// against the one before and goes into a BoxScaler. Memory is the PNG bytes,
+// the 64 KiB window, two rows and the small output, whatever the image's pixel
+// count or how far its data expands, and nothing is left for the garbage
+// collector (spec 5.8). Other PNGs (16-bit, under 8 bits, interlaced, very
+// wide) go to the WASM decoder (img-wasm.ts).
 
 import { BoxScaler, type Rgba } from "./boxscale";
 import { MAX_SIDE, fitWithin } from "./img";
+import { inflate } from "./inflate";
 
 const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 /**
@@ -42,15 +45,6 @@ interface Png extends Header {
 const IDAT = 0x49444154;
 const IEND = 0x49454e44;
 
-/**
- * IDAT chunks under SMALL_IDAT bytes are copied together into writes of up to
- * GATHERED bytes, so a PNG cut into tiny chunks (valid, if odd) costs a few
- * writes, not one per chunk. Larger ones, such as libpng's usual 8 KiB, go to
- * the inflater as they are.
- */
-const SMALL_IDAT = 4 * 1024;
-const GATHERED = 64 * 1024;
-
 function readHeader(b: Uint8Array): Header | null {
   if (b.length < 33 || SIGNATURE.some((v, i) => b[i] !== v)) return null;
   if (u32(b, 8) !== 13 || name(b, 12) !== "IHDR") return null;
@@ -86,10 +80,9 @@ export async function streamPng(bytes: Uint8Array, max = MAX_SIDE): Promise<Rgba
   const png = parse(bytes);
   const scaler = new BoxScaler(png.width, png.height, fitWithin(png.width, png.height, max));
   const rows = new Rows(png, scaler);
-  await inflate(idatData(bytes, png.idatAt), (chunk) => {
-    rows.push(chunk);
-    return rows.done;
-  });
+  // Stops at the last row, or at the end of the zlib stream: like libpng, a
+  // bad Adler-32 or anything after the stream is ignored.
+  inflate(idatData(bytes, png.idatAt), (window, from, to) => rows.push(window, from, to));
   if (!rows.done) throw new Error("PNG image data ends early");
   return scaler.finish();
 }
@@ -126,57 +119,19 @@ function parse(b: Uint8Array): Png {
   return png;
 }
 
-/** The data of each IDAT chunk from `at` to IEND, one at a time; parse() has checked the chunks. */
-function* idatData(b: Uint8Array, at: number): Generator<Uint8Array> {
-  for (let p = at; ; ) {
-    const length = u32(b, p);
-    const type = u32(b, p + 4);
-    if (type === IEND) return;
-    if (type === IDAT) yield b.subarray(p + 8, p + 8 + length);
-    p += 12 + length;
-  }
-}
-
-/** Feeds the inflated IDAT stream to `onData` until it returns true or the stream ends. */
-async function inflate(parts: Iterable<Uint8Array>, onData: (chunk: Uint8Array) => boolean): Promise<void> {
-  const stream = new DecompressionStream("deflate");
-  const writer = stream.writable.getWriter();
-  const writing = (async () => {
-    let gathered = new Uint8Array(GATHERED);
-    let n = 0;
-    const flush = async () => {
-      if (n === 0) return;
-      const full = gathered.subarray(0, n);
-      gathered = new Uint8Array(GATHERED); // the stream may still hold the last one
-      n = 0;
-      await writer.write(full);
-    };
-    for (const part of parts) {
-      if (part.length >= SMALL_IDAT) {
-        await flush();
-        // Parts are views of the fetched body, never of a SharedArrayBuffer.
-        await writer.write(part as Uint8Array<ArrayBuffer>);
-      } else {
-        if (n + part.length > GATHERED) await flush();
-        gathered.set(part, n);
-        n += part.length;
-      }
-    }
-    await flush();
-    await writer.close();
-  })();
-  // A write fails only when the stream has failed or been cancelled; the reader reports that.
-  writing.catch(() => {});
-  const reader = stream.readable.getReader();
-  try {
+/** Returns the data of each IDAT chunk from `at` to IEND in turn, then null; parse() has checked the chunks. */
+function idatData(b: Uint8Array, at: number): () => Uint8Array | null {
+  let p = at;
+  return () => {
     for (;;) {
-      const { value, done } = await reader.read();
-      if (done || onData(value)) return;
+      const length = u32(b, p);
+      const type = u32(b, p + 4);
+      if (type === IEND) return null;
+      const start = p + 8;
+      p += 12 + length;
+      if (type === IDAT) return b.subarray(start, start + length);
     }
-  } finally {
-    // Stops inflating whatever follows the last row, and frees the stream after an error.
-    reader.cancel().catch(() => {});
-  }
+  };
 }
 
 /** Collects the inflated stream into rows, unfilters each against the one before and hands it to the scaler as RGBA. */
@@ -233,20 +188,22 @@ class Rows {
     return this.y === this.height;
   }
 
-  push(chunk: Uint8Array): void {
-    let i = 0;
-    while (i < chunk.length && this.y < this.height) {
+  /** Takes inflated bytes `src[from..to)`; anything past the last row is ignored. Returns whether the image is complete. */
+  push(src: Uint8Array, from: number, to: number): boolean {
+    let i = from;
+    while (i < to && this.y < this.height) {
       if (this.filter < 0) {
-        this.filter = chunk[i++];
+        this.filter = src[i++];
         if (this.filter > 4) throw new Error(`Unknown PNG filter type ${this.filter}`);
         continue;
       }
-      const n = Math.min(this.stride - this.pos, chunk.length - i);
-      this.cur.set(chunk.subarray(i, i + n), this.pos);
+      const n = Math.min(this.stride - this.pos, to - i);
+      this.cur.set(src.subarray(i, i + n), this.pos);
       this.pos += n;
       i += n;
       if (this.pos === this.stride) this.endRow();
     }
+    return this.done;
   }
 
   private endRow(): void {

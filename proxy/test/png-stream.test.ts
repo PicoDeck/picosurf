@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
 import { fitWithin } from "../src/img";
+import { deflateSync, inflateSync } from "node:zlib";
+import { INFLATE_FLUSH } from "../src/inflate";
 import { PNG_STREAM_MAX_WIDTH, canStreamPng, streamPng } from "../src/png-stream";
 import { meanAbsError, sharpReference } from "./helpers/pixels";
 import { CHANNELS, type ColorType, type RawPng, SIGNATURE, chunk, concat, encodePng, ihdr, imageData, photo } from "./helpers/png";
@@ -12,6 +14,48 @@ function raw(width: number, height: number, colorType: ColorType, extra: Partial
   const pixels = colorType === 3 ? photo(width, height, 1) : photo(width, height, CHANNELS[colorType]);
   return { width, height, colorType, pixels, ...extra };
 }
+
+/** What streamPng's inflater was given and gave back, through a pass-through mock. */
+const inflated = vi.hoisted(() => ({ segments: [] as Uint8Array[], delivered: 0 }));
+vi.mock("../src/inflate", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../src/inflate")>();
+  return {
+    ...orig,
+    inflate: (next: () => Uint8Array | null, sink: (w: Uint8Array, from: number, to: number) => boolean) =>
+      orig.inflate(
+        () => {
+          const segment = next();
+          if (segment) inflated.segments.push(segment);
+          return segment;
+        },
+        (w, from, to) => {
+          inflated.delivered += to - from;
+          return sink(w, from, to);
+        },
+      ),
+  };
+});
+const recordInflate = () => {
+  inflated.segments = [];
+  inflated.delivered = 0;
+  return inflated;
+};
+
+/** The inflater stopped within one delivery of the end of the last row. */
+function expectStoppedAtLastRow(delivered: number, needed: number) {
+  expect(delivered).toBeGreaterThanOrEqual(needed);
+  expect(delivered).toBeLessThan(needed + INFLATE_FLUSH + 258);
+}
+
+const flipLast = (z: Uint8Array) => {
+  const out = z.slice();
+  out[out.length - 1] ^= 0xff;
+  return out;
+};
+
+/** 200 MiB of zeros, deflated (about 200 KB). */
+let bomb: Uint8Array | undefined;
+const BOMB = () => (bomb ??= new Uint8Array(deflateSync(new Uint8Array(200 * 1024 * 1024), { level: 9 })));
 
 /** What `p` looks like over white, worked out from its samples directly. */
 function expectedRgba(p: RawPng): number[] {
@@ -113,29 +157,81 @@ describe("streamPng", () => {
     expect(await streamPng(encodePng(p, 1))).toEqual(await streamPng(encodePng(p)));
   });
 
-  it("gathers tiny IDAT chunks into a few large writes", async () => {
+  it("stops inflating as soon as the last row is complete", async () => {
     const p = raw(400, 300, 2);
-    const png = encodePng(p, 1); // about 250,000 one-byte IDAT chunks
     const expected = await streamPng(encodePng(p));
-    const writes = vi.spyOn(WritableStreamDefaultWriter.prototype, "write");
-    try {
-      expect(await streamPng(png)).toEqual(expected);
-      expect(writes.mock.calls.length).toBeLessThan(10);
-    } finally {
-      writes.mockRestore();
-    }
+    // One zlib stream holding the rows and then 1 MB more than the image needs.
+    const z = deflateSync(concat(inflateSync(imageData(p)), new Uint8Array(1_000_000)));
+    const png = concat(SIGNATURE, ihdr(400, 300, 2), chunk("IDAT", z), chunk("IEND"));
+    const record = recordInflate();
+    expect(await streamPng(png)).toEqual(expected);
+    expectStoppedAtLastRow(record.delivered, 300 * (400 * 3 + 1));
   });
 
-  it("writes ordinary 8 KiB IDAT chunks to the inflater as they are, without copying", async () => {
+  it("hands the inflater IDAT chunk data as views of the PNG, without copying", async () => {
     const png = encodePng(raw(400, 300, 2), 8192);
-    const writes = vi.spyOn(WritableStreamDefaultWriter.prototype, "write");
-    try {
-      await streamPng(png);
-      expect(writes.mock.calls.length).toBeGreaterThan(5);
-      for (const [chunk] of writes.mock.calls) expect((chunk as Uint8Array).buffer).toBe(png.buffer);
-    } finally {
-      writes.mockRestore();
-    }
+    const record = recordInflate();
+    await streamPng(png);
+    expect(record.segments.length).toBeGreaterThan(5);
+    for (const segment of record.segments) expect(segment.buffer).toBe(png.buffer);
+  });
+
+  it("decodes image data split into about 250,000 one-byte IDAT chunks", async () => {
+    const p = raw(400, 300, 2);
+    const expected = await streamPng(encodePng(p));
+    const record = recordInflate();
+    expect(await streamPng(encodePng(p, 1))).toEqual(expected);
+    // One segment per byte, up to the end of the deflate data: the Adler-32 is never read (a lookup may peek at its first byte).
+    expect(record.segments.length).toBeLessThanOrEqual(imageData(p).length - 3);
+  });
+
+  it("decodes a decompression bomb without inflating past the last row: 1000x1000 declared, 200 MiB of zeros", async () => {
+    const png = concat(SIGNATURE, ihdr(1000, 1000, 2), chunk("IDAT", BOMB()), chunk("IEND"));
+    const record = recordInflate();
+    const out = await streamPng(png);
+    expect(out).toMatchObject({ width: 320, height: 320 });
+    expect(out.data.every((v, i) => v === (i % 4 === 3 ? 255 : 0))).toBe(true);
+    expectStoppedAtLastRow(record.delivered, 1000 * (1000 * 3 + 1));
+  });
+
+  it("stops at the end of a zlib stream that ends before the last row, and fails", async () => {
+    // A complete zlib stream of 100 rows, a header claiming 200, then 1 MiB of junk IDATs.
+    const p = raw(300, 100, 2);
+    const junk = Array.from({ length: 128 }, () => chunk("IDAT", new Uint8Array(8192).fill(0xab)));
+    const png = concat(SIGNATURE, ihdr(300, 200, 2), chunk("IDAT", imageData(p)), ...junk, chunk("IEND"));
+    const record = recordInflate();
+    await expect(streamPng(png)).rejects.toThrow("PNG image data ends early");
+    expect(record.segments).toHaveLength(1);
+  });
+
+  it.each([
+    ["a bad Adler-32", (z: Uint8Array) => [chunk("IDAT", flipLast(z))]],
+    ["a bad Adler-32 in its own IDAT", (z: Uint8Array) => [chunk("IDAT", z.subarray(0, -4)), chunk("IDAT", flipLast(z).subarray(-4))]],
+    ["no Adler-32 at all", (z: Uint8Array) => [chunk("IDAT", z.subarray(0, -4))]],
+    ["bytes after the zlib stream", (z: Uint8Array) => [chunk("IDAT", concat(z, new Uint8Array(5000).fill(0xab)))]],
+    ["bytes after the zlib stream in their own IDAT", (z: Uint8Array) => [chunk("IDAT", z), chunk("IDAT", new Uint8Array(100).fill(0xab))]],
+  ])("accepts %s, as libpng and the WASM decoder do", async (_name, idats) => {
+    const p = raw(300, 200, 2);
+    const png = concat(SIGNATURE, ihdr(300, 200, 2), ...idats(imageData(p)), chunk("IEND"));
+    expect(await streamPng(png)).toEqual(await streamPng(encodePng(p)));
+  });
+
+  it("ignores an IDAT after IEND", async () => {
+    const p = raw(300, 200, 2);
+    const good = encodePng(p);
+    expect(await streamPng(concat(good, chunk("IDAT", new Uint8Array(1000).fill(7))))).toEqual(await streamPng(good));
+  });
+
+  it("draws a palette index past the end of PLTE as black", async () => {
+    const palette = Uint8Array.of(255, 0, 0, 0, 255, 0);
+    const pixels = Uint8Array.of(0, 1, 2, 200);
+    const out = await streamPng(encodePng({ width: 4, height: 1, colorType: 3, pixels, palette }));
+    expect(Array.from(out.data)).toEqual([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255]);
+  });
+
+  it.each([2, 6] as const)("decodes a real 100000x1 image of colour type %d like sharp", async (colorType) => {
+    const p = raw(PNG_STREAM_MAX_WIDTH, 1, colorType);
+    await expectLikeSharp(encodePng(p), PNG_STREAM_MAX_WIDTH, 1);
   });
 
   it("decodes a 1x1 image", async () => {
@@ -209,7 +305,6 @@ describe("streamPng refuses broken PNGs", () => {
   it("an unknown filter type", async () => {
     const bad = imageData({ ...p, pixels: p.pixels });
     // Re-encode with filter byte 9 on row 5.
-    const { inflateSync, deflateSync } = await import("node:zlib");
     const rows = inflateSync(bad);
     rows[5 * (300 * 3 + 1)] = 9;
     await expect(streamPng(concat(SIGNATURE, ihdr(300, 200, 2), chunk("IDAT", deflateSync(rows)), end))).rejects.toThrow();
