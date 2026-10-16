@@ -108,6 +108,28 @@ local function decodedNow(app)
     return n
 end
 
+local function hasText(F, text)
+    for _, t in ipairs(F.texts) do
+        if t == text then return true end
+    end
+    return false
+end
+
+-- The last frame's draw of the picture whose fake bytes are `data`.
+local function drawOf(F, data)
+    for _, d in ipairs(F.imageDraws) do
+        if d.data == data then return d end
+    end
+    return nil
+end
+
+local function hasRect(F, x, y, w, h)
+    for _, r in ipairs(F.rects) do
+        if r.x == x and r.y == y and r.w == w and r.h == h then return true end
+    end
+    return false
+end
+
 return {
     pictures_load_in_order_and_grow_their_boxes = function()
         local app, F = boot({ images = "inline" })
@@ -279,5 +301,47 @@ return {
         app:step()
         T.eq(#F.decoded, before + 2, "picture two the step after")
         T.eq(boxRows(app, 2), 10)
+    end,
+    draws_a_picture_in_its_box = function()
+        local app, F = boot({ images = "inline" })
+        go(app, F, "pics.test/")
+        steps(app, 3)
+        -- Picture one (200x100) on rows 3-10: its band starts at y 21 + 2 * 13 = 47,
+        -- the picture 2 px lower, centred.
+        local d = drawOf(F, "JPEG:200x100")
+        T.ok(d, "picture one is drawn")
+        T.eq(d.x, 60); T.eq(d.y, 49)
+        T.eq(d.src.x, 0); T.eq(d.src.y, 0); T.eq(d.src.w, 200); T.eq(d.src.h, 100)
+        T.eq(app.page.ps.sel, 1)
+        T.ok(hasRect(F, 0, 47, 320, 104), "selected: the whole band in the selection colour")
+        T.ok(not F.screenText():find("[IMG] one", 1, true), "no label while the picture shows")
+    end,
+    crops_pictures_to_the_rows_between_title_bar_and_footer = function()
+        local app, F = boot({ images = "inline" })
+        go(app, F, "pics.test/")
+        steps(app, 3)
+        local ps = app.page.ps
+        ps:scroll(4); app.dirty = true; steps(app, 1)
+        -- Top 5: picture one's band starts 2 rows above the screen (y -5), the picture at y -3.
+        local d = drawOf(F, "JPEG:200x100")
+        T.eq(d.y, 21); T.eq(d.src.y, 24); T.eq(d.src.h, 76)
+        T.ok(hasRect(F, 0, 21, 320, 78), "the selection band is cropped too")
+        ps:scroll(16); app.dirty = true; steps(app, 1)
+        -- Top 21: picture two (312x126, rows 41-50) starts on the last row, its band at y 281.
+        d = drawOf(F, "JPEG:312x126")
+        T.eq(d.x, 4); T.eq(d.y, 283); T.eq(d.src.y, 0); T.eq(d.src.h, 11)
+    end,
+    a_picture_not_in_memory_shows_an_outline_and_its_label = function()
+        local app, F = boot({ images = "inline" })
+        go(app, F, "pics.test/")
+        steps(app, 3)
+        local st = app.page.inline
+        st.byUrl["https://img.test/1.jpg"].img = nil -- as after it left the window
+        st.wake = false
+        app.dirty = true; steps(app, 1)
+        T.eq(drawOf(F, "JPEG:200x100"), nil)
+        T.ok(hasText(F, "[IMG] one"), "the label in the box's first row")
+        T.ok(hasRect(F, 60, 49, 200, 1), "the top of a 200x100 outline")
+        T.ok(hasRect(F, 60, 49, 1, 100), "its left side")
     end,
 }

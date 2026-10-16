@@ -2,6 +2,7 @@
 local layout = require("src.layout")
 local theme = require("src.theme")
 local url = require("src.url")
+local inline = require("src.inline")
 
 local S = {}
 local MODE_LETTER = { reader = "R", full = "F", feed = "L" }
@@ -18,6 +19,47 @@ local function rowColor(th, st)
     return th.fg
 end
 
+-- A 1 px rectangle, cropped to the rows between clipTop and clipBottom.
+local function outline(d, x, y, w, h, color, clipTop, clipBottom)
+    local y0, y1 = math.max(y, clipTop), math.min(y + h, clipBottom)
+    if y1 <= y0 then return end
+    d.fillRect(x, y0, 1, y1 - y0, color)
+    d.fillRect(x + w - 1, y0, 1, y1 - y0, color)
+    if y >= clipTop then d.fillRect(x, y, w, 1, color) end
+    if y + h <= clipBottom then d.fillRect(x, y + h - 1, w, 1, color) end
+end
+
+-- Inline picture k's box (inline images spec 5.5), drawn from its first
+-- visible row and cropped to the rows between the title bar and the footer:
+-- the selection band, then the picture, or a dim outline and the label while
+-- the picture isn't in memory.
+local function drawBox(app, k, cols)
+    local th, d, p = app.theme, app.disp, app.page
+    local L, ps = p.L, p.ps
+    local link = L.links[k]
+    local clipTop, clipBottom = th.top, th.top + ps.visible * th.rowH
+    local bandTop = th.top + (link.first - ps.top) * th.rowH
+    local bandH = (link.last - link.first + 1) * th.rowH
+    if k == ps.sel then
+        local y0, y1 = math.max(bandTop, clipTop), math.min(bandTop + bandH, clipBottom)
+        d.fillRect(0, y0, 320, y1 - y0, th.selBg)
+    end
+    local e = p.inline and p.inline.byUrl[link.url]
+    local w = e and e.w or inline.FIT_W
+    local h = e and e.h or (bandH - 2 * inline.PAD)
+    local x, y = (320 - w) // 2, bandTop + inline.PAD
+    if e and e.img then
+        local cut = math.max(0, clipTop - y)
+        local shown = math.min(h, clipBottom - y) - cut
+        if shown > 0 then e.img:draw(x, y + cut, false, { x = 0, y = cut, w = w, h = shown }) end
+        return
+    end
+    outline(d, x, y, w, h, th.dim, clipTop, clipBottom)
+    d.setFont(th.font)
+    local row = math.max(link.first, ps.top)
+    d.drawText(th.margin + th.cw, th.top + 1 + (row - ps.top) * th.rowH, link.label:sub(1, cols - 2), th.dim, false)
+end
+
 function S.draw(app)
     local th, d, p = app.theme, app.disp, app.page
     local L, ps = p.L, p.ps
@@ -29,21 +71,26 @@ function S.draw(app)
     for r = ps.top, ps:lastVisible() do
         local y = th.top + 1 + (r - ps.top) * th.rowH
         local st = L.style[r]
-        local x = th.margin
-        if L.link[r] ~= 0 and L.link[r] == ps.sel then d.fillRect(0, y - 1, 320, th.rowH, th.selBg) end
-        local heading = st == layout.H1 or st == layout.H2 or st == layout.H3
-        d.setFont(heading and th.bold or th.font)
-        if st == layout.ITEM then
-            d.drawText(x, y, "*", th.dim, false)
-            x = x + 2 * th.cw
-        elseif st == layout.ITEMC then
-            x = x + 2 * th.cw
-        elseif st == layout.QUOTE then
-            d.fillRect(x, y - 1, 2, th.rowH, th.bar)
-            x = x + 2 * th.cw
+        if st == layout.BOX then
+            local k = L.link[r]
+            if r == L.links[k].first or r == ps.top then drawBox(app, k, cols) end
+        else
+            local x = th.margin
+            if L.link[r] ~= 0 and L.link[r] == ps.sel then d.fillRect(0, y - 1, 320, th.rowH, th.selBg) end
+            local heading = st == layout.H1 or st == layout.H2 or st == layout.H3
+            d.setFont(heading and th.bold or th.font)
+            if st == layout.ITEM then
+                d.drawText(x, y, "*", th.dim, false)
+                x = x + 2 * th.cw
+            elseif st == layout.ITEMC then
+                x = x + 2 * th.cw
+            elseif st == layout.QUOTE then
+                d.fillRect(x, y - 1, 2, th.rowH, th.bar)
+                x = x + 2 * th.cw
+            end
+            d.drawText(x, y, layout.rowText(L, r), rowColor(th, st), false)
+            if L.cont[r] then d.drawText(th.margin + (cols - 1) * th.cw, y, "\\", th.dim, false) end
         end
-        d.drawText(x, y, layout.rowText(L, r), rowColor(th, st), false)
-        if L.cont[r] then d.drawText(th.margin + (cols - 1) * th.cw, y, "\\", th.dim, false) end
     end
     local left = url.host(p.url)
     if ps.digits ~= "" then left = "Link: " .. ps.digits .. "_" end

@@ -18,6 +18,7 @@ function M.new()
     local F = {
         texts = {}, textFonts = {}, logs = {}, toasts = {}, menu = {}, events = {}, inputs = {}, confirms = {},
         requests = {}, pending = {}, config = {}, conns = 0, made = {}, decoded = {},
+        rects = {}, imageDraws = {},
         netStatus = 1, synced = true, epoch = 1792000000, ms = 0,
     }
     local fs, files = fakes.fs()
@@ -58,10 +59,10 @@ function M.new()
         F.texts[#F.texts + 1] = t
         F.textFonts[#F.texts] = F.font
     end
-    function display.clear() F.texts, F.textFonts = {}, {} end
+    function display.clear() F.texts, F.textFonts, F.rects, F.imageDraws = {}, {}, {}, {} end
     function display.setFont(id) F.font = id end
     function display.getFont() return F.font end
-    function display.fillRect() end
+    function display.fillRect(x, y, w, h, c) F.rects[#F.rects + 1] = { x = x, y = y, w = w, h = h, c = c } end
     function display.drawText(_, _, t) record(t); return #t * 6 end
     -- The OS draws toasts and the system menu at a flush in the current font.
     function display.flush() F.frames = (F.frames or 0) + 1; F.flushFont = F.font; F.service() end
@@ -152,7 +153,9 @@ function M.new()
         F.decoded[#F.decoded + 1] = data
         local img = {}
         function img:getSize() return w, h end
-        function img:draw() end
+        function img:draw(x, y, _, src)
+            F.imageDraws[#F.imageDraws + 1] = { data = data, x = x, y = y, src = src }
+        end
         return img
     end
 
