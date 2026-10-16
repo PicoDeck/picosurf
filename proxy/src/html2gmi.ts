@@ -14,7 +14,7 @@ type Kind = "heading" | "para" | "item" | "quote" | "pre" | "table" | "link" | "
 interface Block { kind: Kind; lines: string[]; group: number }
 interface LinkRef { url: string; label: string }
 interface Image { src: string; alt: string; href: string | null }
-interface Inline { parts: Array<string | LinkRef>; images: Image[]; bare: LinkRef[]; timeAt: number }
+interface Inline { parts: Array<string | LinkRef>; images: Image[]; bare: LinkRef[]; timeAt: number; afterTime: boolean }
 
 /** Deeper nesting than this is flattened to its text, so hostile pages cannot overflow the stack. */
 const MAX_DEPTH = 200;
@@ -52,7 +52,20 @@ export function toGemtext(root: Element, opts: ConvertOptions): string {
 const tagOf = (el: Element) => el.tagName.toLowerCase();
 const isElement = (n: Node): n is Element => n.nodeType === ELEMENT;
 const isRef = (p: string | LinkRef): p is LinkRef => typeof p !== "string";
-const emptyInline = (): Inline => ({ parts: [], images: [], bare: [], timeAt: -1 });
+/** Appends text or a link; right after a <time>, a word is kept apart from it ("Jan 1 One", but "Jan 1." and "Jan 1st"). */
+function pushPart(into: Inline, part: string | LinkRef): void {
+  const text = isRef(part) ? part.label : part;
+  if (text === "") return;
+  if (into.afterTime) {
+    into.afterTime = false;
+    const last = into.parts[into.parts.length - 1];
+    const lastText = last === undefined ? " " : isRef(last) ? last.label : last;
+    if (/^[\p{L}\p{N}]/u.test(text) && !/\s$/.test(lastText) && !/^(st|nd|rd|th)(?![\p{L}\p{N}])/u.test(text)) into.parts.push(" ");
+  }
+  into.parts.push(part);
+}
+
+const emptyInline = (): Inline => ({ parts: [], images: [], bare: [], timeAt: -1, afterTime: false });
 
 function isHidden(el: Element): boolean {
   return (
@@ -271,7 +284,7 @@ class Converter {
   private inlineBody(nodes: Node[], into: Inline, href: string | null): Inline {
     for (const node of nodes) {
       if (node.nodeType === TEXT) {
-        into.parts.push(node.textContent ?? "");
+        pushPart(into, node.textContent ?? "");
         continue;
       }
       if (!isElement(node) || skipped(node)) continue;
@@ -282,13 +295,13 @@ class Converter {
         // Ranges and pairs with no link between the times stay on one line.
         if (into.timeAt >= 0 && into.parts.slice(into.timeAt).some(isRef)) into.parts.push(BR);
         this.inline(Array.from(node.childNodes), into, href);
-        if (node.nextSibling && isElement(node.nextSibling)) into.parts.push(" ");
+        into.afterTime = true;
         if (into.timeAt !== Infinity) into.timeAt = into.parts.length;
       }
       else if (tag === "img") {
         const img = this.image(node, href);
         if (img) into.images.push(img);
-      } else if (tag === "code" && href === null) into.parts.push("`" + collapse(node.textContent ?? "") + "`");
+      } else if (tag === "code" && href === null) pushPart(into, "`" + collapse(node.textContent ?? "") + "`");
       else if (tag === "a" && href === null) this.anchor(node, into);
       else {
         const block = BLOCK.has(tag);
@@ -309,7 +322,7 @@ class Converter {
     const inner = this.inline(Array.from(a.childNodes), emptyInline(), url);
     into.images.push(...inner.images);
     const label = plainOf(inner);
-    if (label) into.parts.push({ url, label });
+    if (label) pushPart(into, { url, label });
     else if (inner.images.length === 0) {
       const named = collapse(a.getAttribute("aria-label") || a.getAttribute("title") || "");
       into.bare.push({ url, label: named || hostPath(url) });

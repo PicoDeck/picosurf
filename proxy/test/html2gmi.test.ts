@@ -181,6 +181,14 @@ describe("dated lists laid out by CSS", () => {
   it("separates a time from a directly following element", () => {
     expect(gmi("<p><time>Jan 1</time><span>One</span></p>")).toBe("Jan 1 One\n");
   });
+  it("does not space punctuation or an ordinal suffix after a time", () => {
+    expect(gmi("<p><time>Jan 1</time><em>.</em></p>")).toBe("Jan 1.\n");
+    expect(gmi("<p><time>Jan 1</time><sup>st</sup> party</p>")).toBe("Jan 1st party\n");
+    expect(gmi("<p><time>Jan 1</time><span hidden>x</span>, ok</p>")).toBe("Jan 1, ok\n");
+  });
+  it("separates a wrapped time from a following link", () => {
+    expect(gmi('<p><span><time>Jan 1</time></span><a href="/one">One</a></p>')).toBe("Jan 1 One [1]\n=> https://example.com/one [1] One\n");
+  });
   it("keeps punctuation after a time attached", () => {
     expect(gmi("<p>Posted <time>Jan 1</time>, by me</p>")).toBe("Posted Jan 1, by me\n");
   });
