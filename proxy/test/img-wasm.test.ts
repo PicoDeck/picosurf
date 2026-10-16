@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import sharp, { type Sharp } from "sharp";
+import sharp, { type JpegOptions, type Sharp } from "sharp";
 import { handleRequest } from "../src/handler";
-import { JPEG_MAX_PIXELS, PNG_STREAM_MAX_PIXELS, WASM_MAX_PIXELS, createWasmResizer } from "../src/img-wasm";
+import { JPEG_HEAP_MAX, JPEG_MAX_PIXELS, PNG_STREAM_MAX_PIXELS, WASM_MAX_PIXELS, createWasmResizer, jpegMaxPixels } from "../src/img-wasm";
 import { jpegInfo } from "../src/imgsize";
 import { PNG_MAX_SIDE } from "../src/png-stream";
 import { fakeFetch } from "./helpers/fakefetch";
@@ -82,11 +82,42 @@ function viaHandler(body: Uint8Array, contentType: string): Promise<Response> {
 const jpegOf = async (width: number, height: number) =>
   new Uint8Array(await sharp(photo(width, height, 3), { raw: { width, height, channels: 3 } }).jpeg({ quality: 85 }).toBuffer());
 
+describe("jpegMaxPixels", () => {
+  const MiB = 1024 * 1024;
+  const jpeg = async (options: JpegOptions) =>
+    new Uint8Array(await sharp(photo(400, 300, 3), { raw: { width: 400, height: 300, channels: 3 } }).jpeg(options).toBuffer());
+  /** The model: the heap holds the input twice, 4 bytes a pixel, and 2 a DCT coefficient when the decode buffers them all; 30% slack for reuse. */
+  const model = (bytes: Uint8Array, perPixel: number) => Math.min(JPEG_MAX_PIXELS, Math.floor((JPEG_HEAP_MAX / 1.3 - MiB - 2 * bytes.length) / perPixel));
+
+  it("allows JPEG_MAX_PIXELS for a small baseline JPEG", async () => {
+    const b = await jpeg({});
+    expect(model(b, 4)).toBe(JPEG_MAX_PIXELS);
+    expect(jpegMaxPixels(b)).toBe(JPEG_MAX_PIXELS);
+  });
+
+  it.each([
+    ["progressive 4:2:0", { progressive: true }, 4 + 2 * 1.5],
+    ["progressive 4:4:4", { progressive: true, chromaSubsampling: "4:4:4" }, 4 + 2 * 3],
+  ] as const)("allows fewer pixels for a %s JPEG, whose decode keeps every coefficient", async (_name, options, perPixel) => {
+    const b = await jpeg(options);
+    expect(jpegMaxPixels(b)).toBe(model(b, perPixel));
+    expect(jpegMaxPixels(b)).toBeLessThan(JPEG_MAX_PIXELS);
+  });
+
+  it("allows fewer pixels for a bigger file, which the heap holds twice", async () => {
+    const small = await jpeg({});
+    const big = concat(small, new Uint8Array(9 * MiB)); // bytes after the end of the image still go into the heap
+    expect(jpegMaxPixels(big)).toBe(model(big, 4));
+    expect(jpegMaxPixels(big)).toBeLessThan(JPEG_MAX_PIXELS);
+  });
+});
+
 describe("wasm resizer pixel caps", () => {
   it("caps each kind of image by how its decoder uses memory", async () => {
     const resizer = make();
     const interlaced = await sharp(photo(50, 40, 3), { raw: { width: 50, height: 40, channels: 3 } }).png({ progressive: true }).toBuffer();
     expect(resizer.maxPixels(imageFixture("photo.jpg"), "jpeg")).toBe(JPEG_MAX_PIXELS);
+    expect(resizer.maxPixels(imageFixture("photo-progressive.jpg"), "jpeg")).toBe(jpegMaxPixels(imageFixture("photo-progressive.jpg")));
     expect(resizer.maxPixels(imageFixture("photo.png"), "png")).toBe(PNG_STREAM_MAX_PIXELS);
     expect(resizer.maxPixels(new Uint8Array(interlaced), "png")).toBe(PNG_STREAM_MAX_PIXELS);
     expect(resizer.maxPixels(concat(SIGNATURE, ihdr(PNG_MAX_SIDE + 1, 1, 2)), "png")).toBe(0);

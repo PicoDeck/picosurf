@@ -12,7 +12,7 @@ import { GifReader } from "omggif";
 import { type Rgba, boxScale } from "./boxscale";
 import type { ImageType } from "./content";
 import { JPEG_QUALITY, type Resizer, fitWithin } from "./img";
-import { type Size, imageSize } from "./imgsize";
+import { type Size, imageSize, jpegInfo, jpegScans } from "./imgsize";
 import { Mutex } from "./mutex";
 import { PNG_MAX_SIDE, streamPng } from "./png-stream";
 
@@ -21,14 +21,44 @@ import { PNG_MAX_SIDE, streamPng } from "./png-stream";
 // scripts/measure-images.ts (2026-10-16): "cold" includes instantiating the
 // encoder, "warm" is each further image.
 
-/**
- * JPEGs decode whole in WASM: a fresh decoder whose heap holds the input and
- * the RGBA pixels, then jSquash's JS copy of those pixels, so about 9 MiB a
- * megapixel. Over six runs an 8 MP photo grew 73-79 MiB cold and 66-72
- * warm, the noisiest 8 MP JPEG (the largest input) 80-86 and 71-78; at 4 MP,
- * 41-50 and 37-43. Lower this to trade large photos for headroom.
- */
+const MiB = 1024 * 1024;
+
+/** The most pixels a JPEG may have, however little heap its decode needs. Lower this to trade large photos for headroom. */
 export const JPEG_MAX_PIXELS = 8_000_000;
+
+/**
+ * The most the JPEG decoder's WASM heap may grow to. It keeps its high-water
+ * mark for the life of the isolate (see HeapDecoder), so this, rather than a
+ * pixel count, is what bounds JPEG memory: each JPEG may have as many pixels
+ * as fit (jpegMaxPixels).
+ */
+export const JPEG_HEAP_MAX = 48 * MiB;
+
+/** SOF markers of progressive JPEGs. */
+const PROGRESSIVE = new Set([0xc2, 0xc6, 0xca, 0xce]);
+
+/**
+ * The most pixels this JPEG may have for its decode to stay within
+ * JPEG_HEAP_MAX, and never more than JPEG_MAX_PIXELS. mozjpeg's heap holds the
+ * file twice, the RGBA pixels (4 bytes each) and, when the JPEG is
+ * progressive or has more than one scan, every DCT coefficient (2 bytes each:
+ * 3 a pixel at 4:2:0, 6 at 4:4:4); measured to within 1%. A heap reused
+ * across images needs up to a quarter more than the largest image alone
+ * (emscripten grows a heap by at least a fifth, and the free space left by
+ * one image does not always fit the next), hence the 1.3.
+ */
+export function jpegMaxPixels(bytes: Uint8Array): number {
+  const info = jpegInfo(bytes);
+  if (!info || info.components.length === 0) return JPEG_MAX_PIXELS; // unreadable: the decode will fail
+  const hmax = Math.max(...info.components.map(([h]) => h));
+  const vmax = Math.max(...info.components.map(([, v]) => v));
+  const coefficients =
+    hmax > 0 && vmax > 0 ? info.components.reduce((n, [h, v]) => n + (h * v) / (hmax * vmax), 0) : info.components.length;
+  const buffered = PROGRESSIVE.has(info.sof) || jpegScans(bytes) > 1;
+  const perPixel = 4 + (buffered ? 2 * coefficients : 0);
+  const room = JPEG_HEAP_MAX / 1.3 - MiB - 2 * bytes.length;
+  return Math.max(0, Math.min(JPEG_MAX_PIXELS, Math.floor(room / perPixel)));
+}
 
 /**
  * PNGs that stream (png-stream.ts) hold a few rows, so memory does not bound
@@ -121,7 +151,7 @@ export function createWasmResizer(mods: WasmModules): Resizer {
 
   return {
     maxPixels(bytes, type) {
-      if (type === "jpeg") return JPEG_MAX_PIXELS;
+      if (type === "jpeg") return jpegMaxPixels(bytes);
       if (type === "png") {
         const size = imageSize(bytes, "png");
         return size && Math.max(size.width, size.height) > PNG_MAX_SIDE ? 0 : PNG_STREAM_MAX_PIXELS;
