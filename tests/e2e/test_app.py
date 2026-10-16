@@ -111,6 +111,24 @@ def test_image_opens_full_screen(picosurf):
     no_lua_errors(sim)
 
 
+def test_inline_picture(picosurf):
+    sim, proxy, data = picosurf(settings={"images": "inline"})
+    seed_history(data, "https://a.test/")
+    proxy.add("https://a.test/", A, title="A")
+    proxy.add("https://a.test/cat.jpg", jpeg_bytes(640, 480), ctype="image/jpeg")
+    wait(sim, r"picosurf: screen home", start_app(sim))
+    # 640x480 in the 312x126 box is 168x126: 10 rows.
+    wait(sim, r"picosurf: inline 2 w=168 h=126 rows=10", open_first_history(sim))
+    assert any(q.get("fit") == "312x126" for _, q in proxy.requests)
+    time.sleep(0.5)  # the frame drawn after the log line
+    # A's rows: title, blank, text, the B link, then the picture's box from
+    # row 5. Its band starts at y 21 + 4 * 13 = 73; the picture is 2 px lower
+    # and centred, so (160, 138) is inside it.
+    r, g, b = sim.screenshot_pil().convert("RGB").getpixel((160, 138))
+    assert abs(r - 30) <= 24 and abs(g - 120) <= 24 and abs(b - 200) <= 24, (r, g, b)
+    no_lua_errors(sim)
+
+
 def test_subscribe_and_read(picosurf):
     sim, proxy, data = picosurf()
     seed_history(data, "https://blog.test/")

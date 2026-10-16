@@ -32,6 +32,8 @@ While a page loads, only Esc cancels it. On an error, Enter retries and Esc or B
 
 The system menu has Reload, Edit URL, Mark all read and Settings.
 
+**Images** in Settings switches between Links (an `[IMG]` line; Enter opens the picture full screen) and Inline (pictures in the page, loaded as you read; Enter still opens one full screen). Inline needs a proxy from the same version or later: redeploy the proxy when you update.
+
 ## Development
 - `make test`: Lua unit tests under stock Lua and under `lua32`, which has the device's 32-bit numbers. Building `lua32` needs a PicoDeck checkout; set `PICODECK_ROOT`.
 - `make e2e`: runs the smoke tests locally in the PicoDeck simulator, against a fake proxy. They need a PicoDeck checkout, set by `PICODECK_ROOT` (default `~/Projects/PicoDeck/picodeck`). Run `make simulator` in that checkout first. The F1 "Go to" test types Enter's `\n` through the simulator's control channel, which needs a simulator built with PicoDeck's `fix/sim-enter-char` (JSON strings unescaped); an older one fails that test with a message saying so.
@@ -42,4 +44,4 @@ The system menu has Reload, Edit URL, Mark all read and Settings.
 - Native Gemini and Gopher. Gemini needs a firmware call that returns the server certificate's fingerprint, for trust-on-first-use (TOFU).
 - A longer `ui.textInput` limit, so "Edit URL" works on article URLs over 127 characters.
 - Simulator fixes for end-to-end tests: Shift+Tab (key 0xD2) and HTTP back-pressure should behave as on the device.
-- Web search, saving pages offline, OPML import, inline images, non-Latin fonts.
+- Web search, saving pages offline, OPML import, non-Latin fonts.

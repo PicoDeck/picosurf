@@ -23,11 +23,12 @@ it out (section 9).
   Runs as a Cloudflare Worker or under Node in Docker.
 - App: type a URL, read the page, follow links, go back; bookmarks;
   history; feed subscriptions with unread tracking; images opened full
-  screen on demand.
+  screen on demand, or shown in the page (Settings → Images; see
+  `2026-10-16-picosurf-inline-images-design.md`).
 
 **Later (section 9):** native Gemini (needs a firmware call for TOFU), Gopher,
 Spartan, Nex and Finger, web search, saving pages for offline reading, OPML
-import, inline images, a public instance, fonts beyond ASCII.
+import, a public instance, fonts beyond ASCII.
 
 **Non-goals:** JavaScript, logins, cookies, POST forms, web apps.
 
@@ -325,7 +326,7 @@ Deployment:
 - **Loading:** spinner, host, bytes received; Esc cancels.
 - **Error:** status and the proxy's reason; Enter retries, Esc/Backspace goes back.
 - **Image:** the JPEG centred on black; Esc/Backspace goes back.
-- **Settings** (system menu): Proxy URL, Token, Font, Test connection.
+- **Settings** (system menu): Proxy URL, Token, Font, Images, Test connection.
 
 ### 6.3 Layout and drawing
 
@@ -351,6 +352,10 @@ Deployment:
   byte, end byte, style, link index), not copied strings.
 - **Drawing:** redraw only when state changes. The idle loop calls
   `input.update()` and sleeps about 16 ms.
+- **Inline pictures** (Images: Inline): an image link's rows become a box of
+  `ceil((h + 4) / 13)` rows, at most 10, once its picture arrives; pictures
+  within a screen of the view load one at a time. See the inline images
+  design (`2026-10-16-picosurf-inline-images-design.md`), sections 2 and 5.
 
 ### 6.4 Keys
 
@@ -375,10 +380,11 @@ as below.
 System menu items (`sys.addMenuItem`): Reload, Edit URL (pre-filled when the
 URL is 128 characters or less, otherwise a toast), Mark all read (in a feed),
 Settings.
+An inline picture's box is one link: Up/Down, Tab and Enter treat it like a link line, and Enter opens the picture full screen.
 
 ### 6.5 Navigation and history
 
-- **Back stack:** up to 20 entries of `{url, mode, scroll, selected}`. The
+- **Back stack:** up to 20 entries of `{url, mode, scroll, selected, boxes}` (boxes: inline picture box sizes, so Back returns to the same rows). The
   bodies of the 3 most recent pages stay in memory; older entries are
   fetched again on Back.
 - **History tab:** each successful load records `X-Final-Url` and `X-Title`.
@@ -389,7 +395,7 @@ Files live in `/data/net.picodeck.picosurf/`.
 
 | File | Contents | Cap |
 |---|---|---|
-| `config.json` (`picocalc.config`) | `proxy_url`, `token`, `font` | — |
+| `config.json` (`picocalc.config`) | `proxy_url`, `token`, `font`, `images` | — |
 | `bookmarks.json` | `[{url, title}]`, newest first | 200 |
 | `history.json` | `[{url, title}]`, newest first, revisits move to the top | 100 |
 | `feeds/index.json` | `{next_id, feeds: [{id, url, title, fetched_at, unread}]}` | 50 feeds |
@@ -428,7 +434,8 @@ Files live in `/data/net.picodeck.picosurf/`.
 - **First run:** with no `proxy_url`, open Settings with a short explanation
   that points to the repo's proxy setup section.
 - **Fields:** Proxy URL and Token use `ui.textInput`, so each is at most 128
-  characters. Font switches between Scientifica and 8×12.
+  characters. Font switches between Scientifica and 8×12. Images switches
+  between Links (the default) and Inline.
 - **Test connection:** calls `/v1/ping` and shows the result.
 - **Plain `http://` proxy URLs** are allowed for local development, with a
   warning that the token is sent unencrypted.
@@ -445,6 +452,8 @@ Files live in `/data/net.picodeck.picosurf/`.
 | No response in 20 s | error screen `Proxy did not respond` |
 | Out of memory while parsing or laying out (`pcall`) | clear the cached page bodies, `collectgarbage()`, retry once, then show `Page too large for memory` |
 | Image decode fails | error screen with the image URL |
+| Inline picture fails (proxy error, timeout, decode) | the line stays an `[IMG]` link; Reload tries again |
+| Inline picture larger than its box (a proxy without `fit`) | stays a link; toast `Inline images need a newer proxy`, once per run |
 | Corrupt storage file | 6.6 |
 
 ## 7. Testing
@@ -501,6 +510,7 @@ This default list can be swapped for the author's own reading:
   - bookmark add and remove
   - subscribing from a homepage; unread counts going down as articles are opened
   - an image opening full screen
+  - an inline picture drawn in its box (Images: Inline)
   - proxy error screens (401, 502)
 - **Hardware pass** (manual) against the deployed Worker:
   - Open every page and feed on the smoke list.
@@ -537,7 +547,7 @@ This default list can be swapped for the author's own reading:
 3. **Public instance:** per-device tokens, rate limits, abuse handling; the
    app's default proxy URL changes.
 4. **Web search** through a configurable backend.
-5. **Offline save, OPML import, inline images, fonts beyond ASCII, a richer
+5. **Offline save, OPML import, fonts beyond ASCII, a richer
    format than gemtext** if inline links prove too noisy.
 
 ## 10. Risks

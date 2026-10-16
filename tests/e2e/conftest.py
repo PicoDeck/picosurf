@@ -35,19 +35,20 @@ def stage_app(dest: Path):
 
 @pytest.fixture
 def picosurf(tmp_path):
-    """start(config=True) -> (sim, proxy, data_dir). With config, the app's
+    """start(config=True, settings=None) -> (sim, proxy, data_dir). settings: more config.json keys, e.g. {"images": "inline"}. With config, the app's
     config.json points at a fresh FakeProxy; routes can be added after start
     (they are looked up per request)."""
     started = []
 
-    def start(config=True):
+    def start(config=True, settings=None):
         proxy = FakeProxy().start()
         sd = tmp_path / f"sd{len(started)}"
         stage_app(sd / "apps" / APP)
         data = sd / "data" / APP_ID
         (data / "feeds").mkdir(parents=True, exist_ok=True)
         if config:
-            (data / "config.json").write_text(json.dumps({"proxy_url": proxy.url, "token": proxy.token}))
+            cfg = {"proxy_url": proxy.url, "token": proxy.token, **(settings or {})}
+            (data / "config.json").write_text(json.dumps(cfg))
         sim = PicodeckSimulator(binary_path=os.environ.get("PICODECK_SIM_BINARY"),
                                 sd_card_path=str(sd), test_mode=True)
         sim.start()

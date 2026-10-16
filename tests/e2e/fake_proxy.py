@@ -63,7 +63,10 @@ class FakeProxy:
                     extra["X-Title"] = r["title"]
                 if r["feed"]:
                     extra["X-Feed-Url"] = r["feed"]
-                self._send(r["status"], r["ctype"], r["body"], extra)
+                body = r["body"]
+                if r["ctype"] == "image/jpeg" and "fit" in q:
+                    body = fit_jpeg(body, q["fit"])
+                self._send(r["status"], r["ctype"], body, extra)
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
@@ -83,4 +86,16 @@ def jpeg_bytes(w=200, h=120):
     from PIL import Image
     buf = io.BytesIO()
     Image.new("RGB", (w, h), (30, 120, 200)).save(buf, "JPEG", quality=80, progressive=False)
+    return buf.getvalue()
+
+
+def fit_jpeg(data, fit):
+    """Scales a JPEG to fit within WxH, never enlarging, as the proxy's fit
+    parameter does."""
+    from PIL import Image
+    w, h = (int(v) for v in fit.split("x"))
+    img = Image.open(io.BytesIO(data))
+    img.thumbnail((w, h))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=80, progressive=False)
     return buf.getvalue()
