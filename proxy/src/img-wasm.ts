@@ -42,10 +42,10 @@ class ImageDataShim {
 
 /**
  * JPEGs decode whole in WASM: a fresh decoder whose heap holds the input and
- * the RGBA pixels, then jSquash's JS copy of those pixels, so about 8 MiB a
- * megapixel. An 8 MP photo grows 77 MiB cold and 67 warm (the noisiest
- * 8 MP JPEG 85 and 71); 4 MP 43 and 37. Lower this to trade large photos
- * for headroom.
+ * the RGBA pixels, then jSquash's JS copy of those pixels, so about 9 MiB a
+ * megapixel. Over six runs an 8 MP photo grew 73-79 MiB cold and 66-72
+ * warm, the noisiest 8 MP JPEG (the largest input) 80-86 and 71-78; at 4 MP,
+ * 41-50 and 37-43. Lower this to trade large photos for headroom.
  */
 export const JPEG_MAX_PIXELS = 8_000_000;
 
