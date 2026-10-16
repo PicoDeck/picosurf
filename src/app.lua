@@ -67,7 +67,10 @@ function App:loadFont()
     local want, old = self.cfg.font, self.fontSpec
     if old and old.name == want then return false end
     if old then fonts.unload(self.disp, old) end
-    local spec, err = fonts.load(self.disp, self.appDir, want)
+    -- fonts.load raises only out of memory, with the old font already gone:
+    -- then Scientifica, built in, which loads no files.
+    local ok, spec, err = pcall(fonts.load, self.disp, self.appDir, want)
+    if not ok then spec, err = fonts.load(self.disp, self.appDir, "scientifica"), spec end
     self.fontSpec = spec
     self.theme = theme.new(self.disp, spec)
     self:log("font", spec.name)

@@ -3,6 +3,7 @@ local fakepc = require("tests.fakepc")
 local App = require("src.app")
 local layout = require("src.layout")
 local theme = require("src.theme")
+local fonts = require("src.fonts")
 
 local function lines(from, to)
     local out = {}
@@ -228,5 +229,25 @@ return {
         ps = app.page.ps
         T.eq(ps.sel, sel, "the same link selected")
         T.eq(app.page.L.links[sel].last, ps:lastVisible(), "scrolled just far enough to show it")
+    end,
+    a_font_load_that_raises_falls_back_to_scientifica = function() -- final review F3
+        local app, F = boot({ font = "sans" })
+        go(app, F, "wide.test/")
+        local load = fonts.load
+        fonts.load = function() -- once, as out of memory after the old font was unloaded
+            fonts.load = load
+            error("not enough memory")
+        end
+        local ok, err = pcall(nextFont, app, F) -- sans -> serif
+        fonts.load = load
+        if not ok then error(err, 0) end
+        T.eq(app.cfg.font, "serif", "the setting keeps its value")
+        T.eq(app.theme.fontName, "scientifica")
+        T.eq(app.theme.font, F.pc.display.FONT_SCIENTIFICA, "no unloaded font ids")
+        T.eq(next(F.fontFiles), nil, "nothing left loaded")
+        T.ok(F.hasToast("Font unavailable - using Scientifica"))
+        T.ok(F.hasLog("not enough memory"))
+        T.eq(app.page.ps.visible, theme.rows(app.theme), "laid out again: 21 rows of 13 px")
+        assertWithinPage(F)
     end,
 }

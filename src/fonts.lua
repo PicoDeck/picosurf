@@ -57,9 +57,9 @@ local function builtin(disp, name)
     }
 end
 
--- Loads choice `name` (one of CHOICES). Never raises: when a font file can't
--- be loaded, unloads what it did load and returns the Scientifica spec and
--- an error naming the file. The current font is left as it was.
+-- Loads choice `name` (one of CHOICES). Raises only out of memory: when a
+-- font file can't be loaded, unloads what it did load and returns the
+-- Scientifica spec and an error naming the file. The current font is left as it was.
 function M.load(disp, appDir, name)
     local spec, err
     local f = FILES[name]
