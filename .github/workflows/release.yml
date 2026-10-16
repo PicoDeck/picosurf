@@ -20,7 +20,7 @@ jobs:
           VER="$(python3 -c 'import json; print(json.load(open("app.json"))["version"])')"
           [ "$VER" = "$TAG" ] || { echo "app.json version $VER does not match tag $TAG"; exit 1; }
       - name: Package
-        run: zip -9 -r "picosurf-${GITHUB_REF_NAME#v}.zip" app.json main.lua src
+        run: zip -9 -r "picosurf-${GITHUB_REF_NAME#v}.zip" app.json main.lua src fonts
       - uses: softprops/action-gh-release@v2
         with:
           files: picosurf-*.zip

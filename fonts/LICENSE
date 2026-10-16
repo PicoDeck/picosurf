@@ -1,0 +1,47 @@
+PicoSurf's Sans and Serif reading fonts are converted from X.Org's bitmap
+font releases (tools/build-fonts.py). Their licences follow, unchanged.
+
+========================================================================
+sans.pfn and sans-bold.pfn: Helvetica 12 and Helvetica Bold 12
+(helvR12, helvB12) from X.Org font-adobe-75dpi 1.0.4.
+
+Copyright 1984-1989, 1994 Adobe Systems Incorporated.
+Copyright 1988, 1994 Digital Equipment Corporation.
+
+Adobe is a trademark of Adobe Systems Incorporated which may be
+registered in certain jurisdictions.
+Permission to use these trademarks is hereby granted only in
+association with the images described in this file.
+
+Permission to use, copy, modify, distribute and sell this software
+and its documentation for any purpose and without fee is hereby
+granted, provided that the above copyright notices appear in all
+copies and that both those copyright notices and this permission
+notice appear in supporting documentation, and that the names of
+Adobe Systems and Digital Equipment Corporation not be used in
+advertising or publicity pertaining to distribution of the software
+without specific, written prior permission.  Adobe Systems and
+Digital Equipment Corporation make no representations about the
+suitability of this software for any purpose.  It is provided "as
+is" without express or implied warranty.
+
+========================================================================
+serif.pfn and serif-bold.pfn: Utopia Regular 10 and Utopia Bold 10
+(UTRG__10, UTB___10) from X.Org font-adobe-utopia-75dpi 1.0.5.
+
+Permission to use, reproduce, display and distribute the listed typefaces
+is hereby granted, provided that the Adobe Copyright notice appears in all
+whole and partial copies of the software and that the following trademark
+symbol and attribution appear in all unmodified copies of the software:
+
+        Copyright (c) 1989 Adobe Systems Incorporated
+        Utopia (R)
+        Utopia is a registered trademark of Adobe Systems Incorporated
+
+The Adobe typefaces (Type 1 font program, bitmaps and Adobe Font Metric
+files) donated are:
+
+        Utopia Regular
+        Utopia Italic
+        Utopia Bold
+        Utopia Bold Italic

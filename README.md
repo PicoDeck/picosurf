@@ -34,6 +34,11 @@ The system menu has Reload, Edit URL, Mark all read and Settings.
 
 **Images** in Settings switches between Links (an `[IMG]` line; Enter opens the picture full screen) and Inline (pictures in the page, loaded as you read; Enter still opens one full screen). Inline needs a proxy from the same version or later: redeploy the proxy when you update.
 
+## Credits
+The Sans and Serif reading fonts are converted from X.Org's Adobe bitmap fonts by `tools/build-fonts.py`; [fonts/LICENSE](fonts/LICENSE) has their licences.
+- Sans: Helvetica 12. Copyright 1984-1989, 1994 Adobe Systems Incorporated. Copyright 1988, 1994 Digital Equipment Corporation.
+- Serif: Utopia 10. Copyright (c) 1989 Adobe Systems Incorporated. Utopia (R) is a registered trademark of Adobe Systems Incorporated.
+
 ## Development
 - `make test`: Lua unit tests under stock Lua and under `lua32`, which has the device's 32-bit numbers. Building `lua32` needs a PicoDeck checkout; set `PICODECK_ROOT`.
 - `make e2e`: runs the smoke tests locally in the PicoDeck simulator, against a fake proxy. They need a PicoDeck checkout, set by `PICODECK_ROOT` (default `~/Projects/PicoDeck/picodeck`). Run `make simulator` in that checkout first. The F1 "Go to" test types Enter's `\n` through the simulator's control channel, which needs a simulator built with PicoDeck's `fix/sim-enter-char` (JSON strings unescaped); an older one fails that test with a message saying so.

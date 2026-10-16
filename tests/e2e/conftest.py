@@ -20,7 +20,7 @@ from picodeck_simulator import PicodeckSimulator  # noqa: E402
 from fake_proxy import FakeProxy  # noqa: E402
 
 APP, APP_ID = "picosurf", "net.picodeck.picosurf"
-APP_FILES = ("app.json", "main.lua", "src")
+APP_FILES = ("app.json", "main.lua", "src", "fonts")
 
 
 def stage_app(dest: Path):
