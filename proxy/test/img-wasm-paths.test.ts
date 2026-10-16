@@ -7,7 +7,7 @@ import decodePng from "@jsquash/png/decode";
 import { createWasmResizer } from "../src/img-wasm";
 import { jpegInfo } from "../src/imgsize";
 import { streamPng } from "../src/png-stream";
-import { photo } from "./helpers/png";
+import { encodePng, photo } from "./helpers/png";
 import { imageFixture } from "./helpers/resizer-contract";
 import { wasmModules } from "./helpers/wasm";
 
@@ -15,9 +15,19 @@ vi.mock("@jsquash/png/decode", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@jsquash/png/decode")>();
   return { ...orig, default: vi.fn(orig.default) };
 });
+/** How many streamPng calls are running now, and the most at once. */
+const flight = vi.hoisted(() => ({ now: 0, most: 0 }));
 vi.mock("../src/png-stream", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../src/png-stream")>();
-  return { ...orig, streamPng: vi.fn(orig.streamPng) };
+  const streamPng = async (...args: Parameters<typeof orig.streamPng>) => {
+    flight.most = Math.max(flight.most, ++flight.now);
+    try {
+      return await orig.streamPng(...args);
+    } finally {
+      flight.now--;
+    }
+  };
+  return { ...orig, streamPng: vi.fn(streamPng) };
 });
 
 const resizer = createWasmResizer(wasmModules());
@@ -39,5 +49,18 @@ describe("wasm resizer decoder choice", () => {
     await resizer.resize(new Uint8Array(png), "png");
     expect(decodePng).toHaveBeenCalledTimes(1);
     expect(streamPng).not.toHaveBeenCalled();
+  });
+});
+
+describe("wasm resizer jobs", () => {
+  it("runs two concurrent resizes one after the other", async () => {
+    // Big enough that inflating takes many reads, so unserialised jobs would interleave.
+    const png = encodePng({ width: 2000, height: 1500, colorType: 2, pixels: photo(2000, 1500, 3) });
+    flight.most = 0;
+    const [a, b] = await Promise.all([resizer.resize(png, "png"), resizer.resize(png, "png")]);
+    expect(jpegInfo(a)?.size).toEqual({ width: 320, height: 240 });
+    expect(b).toEqual(a);
+    expect(streamPng).toHaveBeenCalledTimes(2);
+    expect(flight.most).toBe(1);
   });
 });
