@@ -91,6 +91,13 @@ local function boxRows(app, k)
     return link.last - link.first + 1
 end
 
+-- Settings, then the Font row (the third): steps to the next font; Esc back.
+local function nextFont(app, F)
+    F.menu["Settings"](); steps(app, 1)
+    F.press("down"); F.press("down"); F.press("enter"); steps(app, 1)
+    F.press("esc"); steps(app, 1)
+end
+
 return {
     proportional_pages_indent_and_keep_code_monospace = function() -- Review Focus 1
         local app, F = boot({ font = "sans" })
@@ -125,5 +132,61 @@ return {
         local font, shown = F.textFonts[found], F.texts[found]
         T.ok(F.textWidthIn(font, shown) <= 300, "within the box")
         T.ok(F.textWidthIn(font, LABEL:sub(1, #shown + 1)) > 300, "as much as fits")
+    end,
+    the_default_font_is_sans = function()
+        local app, F = boot()
+        T.eq(app.cfg.font, "sans"); T.eq(app.theme.fontName, "sans"); T.eq(app.theme.rowH, 14)
+        T.eq(require("src.theme").rows(app.theme), 20)
+        T.ok(F.hasLog("picosurf: font sans"))
+    end,
+    settings_step_through_the_four_fonts = function()
+        local app, F = boot({ font = "sans" })
+        local LABEL = { serif = "Serif", scientifica = "Scientifica", ["8x12"] = "8x12 (large)", sans = "Sans" }
+        local seen = {}
+        for _ = 1, 4 do
+            F.menu["Settings"](); steps(app, 1)
+            F.press("down"); F.press("down"); F.press("enter"); steps(app, 1)
+            seen[#seen + 1] = F.config.font
+            T.ok(F.screenText():find("Font: " .. LABEL[F.config.font], 1, true), "label for " .. F.config.font)
+            T.eq(app.theme.fontName, F.config.font)
+            F.press("esc"); steps(app, 1)
+        end
+        T.eq(table.concat(seen, ","), "serif,scientifica,8x12,sans")
+        local loaded = 0
+        for _ in pairs(F.fontFiles) do loaded = loaded + 1 end
+        T.eq(loaded, 2, "only the current font's two files stay loaded")
+    end,
+    a_missing_font_file_falls_back_to_scientifica = function() -- Review Focus 4
+        local app, F = boot({ font = "serif", missing = "/apps/picosurf/fonts/serif-bold.pfn" })
+        T.eq(app.theme.fontName, "scientifica"); T.eq(app.cfg.font, "serif", "the setting keeps its value")
+        T.ok(F.hasToast("Font unavailable - using Scientifica"))
+        T.ok(F.hasLog("/apps/picosurf/fonts/serif-bold.pfn"))
+        T.ok(F.hasLog("picosurf: font scientifica"))
+        T.eq(next(F.fontFiles), nil, "nothing left loaded")
+    end,
+    a_font_change_resizes_picture_boxes_and_keeps_the_line = function() -- Review Focus 3
+        local app, F = boot({ font = "scientifica", images = "inline" })
+        go(app, F, "pics.test/")
+        steps(app, 3)
+        T.eq(boxRows(app, 1), 10, "120 px on 13 px rows")
+        app.page.ps:scroll(15); app.dirty = true; steps(app, 2)
+        local line = app.page.L.line[app.page.ps.top]
+        nextFont(app, F); nextFont(app, F) -- scientifica -> 8x12 -> sans
+        T.eq(app.cfg.font, "sans")
+        T.eq(boxRows(app, 1), 9, "120 px on 14 px rows")
+        T.eq(app.page.L.line[app.page.ps.top], line, "the same line at the top")
+    end,
+    back_across_a_font_change_lands_on_the_same_line = function() -- Review Focus 5
+        local app, F = boot({ font = "scientifica", images = "inline" })
+        go(app, F, "pics.test/")
+        steps(app, 3)
+        app.page.ps:scroll(15); app.dirty = true; steps(app, 2)
+        local line = app.page.L.line[app.page.ps.top]
+        go(app, F, "b.test/")
+        nextFont(app, F); nextFont(app, F)
+        F.press("backspace"); steps(app, 3)
+        T.eq(app.page.url, "https://pics.test/")
+        T.eq(app.page.L.line[app.page.ps.top], line, "the same line at the top")
+        T.eq(boxRows(app, 1), 9, "the box in Sans rows from the saved height")
     end,
 }

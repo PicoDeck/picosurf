@@ -43,7 +43,7 @@ end
 function App:loadConfig()
     local c = self.pc.config
     self.cfg = {
-        proxyUrl = c.get("proxy_url") or "", token = c.get("token") or "", font = fonts.normalize(c.get("font") or "scientifica"),
+        proxyUrl = c.get("proxy_url") or "", token = c.get("token") or "", font = fonts.normalize(c.get("font")),
         images = c.get("images") == "inline" and "inline" or "links",
     }
     self:loadFont()
@@ -67,7 +67,10 @@ function App:loadFont()
     self.fontSpec = spec
     self.theme = theme.new(self.disp, spec)
     self:log("font", spec.name)
-    if err then self:log("error", "-", err) end
+    if err then
+        self:log("error", "-", err)
+        self:toast("Font unavailable - using Scientifica", self.ui.TOAST_WARNING)
+    end
 end
 
 function App:saveConfig(key, value)
@@ -336,9 +339,9 @@ end
 
 -- Parses and lays out a page. With Images set to Inline, a page restored by
 -- Back or Reload gets its boxes back, so the saved scroll position points at
--- the same content (inline images spec 5.6). With Images now Links, the
--- saved rows counted boxes that are gone: the saved source line goes back
--- to the top instead.
+-- the same content (inline images spec 5.6). With Images now Links, or after
+-- a font change, the saved rows were counted in another layout: the saved
+-- source line goes back to the top instead.
 function App:buildPage(finalUrl, mode, r, restore)
     local boxes = self.cfg.images == "inline" and restore and copyBoxes(restore.boxes) or nil
     local lines, L = self:withMemoryRetry(function()
@@ -353,7 +356,10 @@ function App:buildPage(finalUrl, mode, r, restore)
     page.ps = pagestate.new(L, theme.rows(self.theme))
     if restore then
         local top = restore.top
-        if restore.boxes and not boxes and restore.line then top = firstRowOf(L, restore.line) end
+        -- The saved rows were counted in another layout (other font, or boxes
+        -- now gone): the saved source line goes back to the top instead.
+        local relaid = restore.font ~= self.theme.fontName or (restore.boxes and not boxes)
+        if relaid and restore.line then top = firstRowOf(L, restore.line) end
         page.ps:restore(top, restore.sel)
     end
     if self.cfg.images == "inline" then page.inline = inline.new(boxes) end
@@ -596,7 +602,7 @@ function App:pushBack()
     local p = self.page
     self.back[#self.back + 1] = {
         url = p.url, want = p.want, top = p.ps.top, sel = p.ps.sel, feedId = p.isFeedList and p.feedId or nil,
-        boxes = p.inline and copyBoxes(p.inline.boxes) or nil, line = p.L.line[p.ps.top],
+        boxes = p.inline and copyBoxes(p.inline.boxes) or nil, line = p.L.line[p.ps.top], font = self.theme.fontName,
     }
     while #self.back > App.MAX_BACK do table.remove(self.back, 1) end
 end
@@ -604,7 +610,7 @@ end
 function App:goBack()
     local e = self.back[#self.back]
     if not e then return self:goHome() end
-    local restore = { top = e.top, sel = e.sel, boxes = e.boxes, line = e.line }
+    local restore = { top = e.top, sel = e.sel, boxes = e.boxes, line = e.line, font = e.font }
     if e.feedId then
         -- A feed list needs no network and cannot fail, so its entry goes now.
         table.remove(self.back)
@@ -645,7 +651,7 @@ function App:reload()
     self:cacheDrop(p.url, p.want)
     self:open(p.url, { mode = p.want, push = false, restore = {
         top = p.ps.top, sel = p.ps.sel, boxes = p.inline and copyBoxes(p.inline.boxes) or nil,
-        line = p.L.line[p.ps.top],
+        line = p.L.line[p.ps.top], font = self.theme.fontName,
     } })
 end
 

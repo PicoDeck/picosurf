@@ -19,6 +19,7 @@ local ROUTES = {
 local function boot()
     local F = fakepc.new()
     F.config.proxy_url, F.config.token = "https://p.test", "tok"
+    F.config.font = "scientifica"
     F.responder = fakepc.proxy(ROUTES, "tok")
     local app = App.new(F.pc, "net.picodeck.picosurf")
     app:start()

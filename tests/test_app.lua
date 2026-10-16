@@ -37,7 +37,7 @@ local function boot(opts)
         F.config.proxy_url = opts.proxy or "https://p.test"
         F.config.token = "tok"
     end
-    F.config.font = opts.font
+    F.config.font = opts.font or "scientifica"
     F.responder = fakepc.proxy(ROUTES, opts.token or "tok")
     local app = App.new(F.pc, "net.picodeck.picosurf")
     app:start()
