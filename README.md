@@ -34,7 +34,7 @@ The system menu has Reload, Edit URL, Mark all read and Settings.
 
 **Images** in Settings switches between Links (an `[IMG]` line; Enter opens the picture full screen) and Inline (pictures in the page, loaded as you read; Enter still opens one full screen). Inline needs a proxy from the same version or later: redeploy the proxy when you update.
 
-**Font** in Settings steps through Scientifica, 8x12, Sans and Serif. Sans is the default: a proportional font that fits about 57 characters a line. Code blocks always use a monospace font.
+**Font** in Settings steps through Scientifica, 8x12, Sans, Serif and System (6x8). Sans is the default: a proportional font that fits about 57 characters a line. System is the smallest: 28 lines a screen. Code blocks always use a monospace font.
 
 ## Credits
 The Sans and Serif reading fonts are converted from X.Org's Adobe bitmap fonts by `tools/build-fonts.py`; [fonts/LICENSE](fonts/LICENSE) has their licences.

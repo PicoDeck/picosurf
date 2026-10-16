@@ -333,13 +333,14 @@ Deployment:
 
 ### 6.3 Layout and drawing
 
-- **Fonts:** four reading fonts, chosen in Settings (proportional fonts
+- **Fonts:** five reading fonts, chosen in Settings (proportional fonts
   design): Sans (X11 Adobe Helvetica 12 and its bold, 14 px rows, the
   default), Serif (Utopia 10 and its bold, 13 px rows), Scientifica (6×12 and
-  its bold, 13 px rows) and 8×12 (13 px rows, headings marked by colour only).
+  its bold, 13 px rows), 8×12 (13 px rows, headings marked by colour only)
+  and System (the system font 6×8, 10 px rows, headings marked by colour only).
   Sans and Serif load from the app's `fonts/` folder; if that fails the app
   uses Scientifica. Rows come from the font's row height and the header and
-  footer heights (20 rows with Sans, 21 otherwise). The Font setting
+  footer heights (20 rows with Sans, 28 with System, 21 otherwise). The Font setting
   is the reading font: it applies to page text only. Everything else (title
   bar, footer, tabs, lists, Settings, loading and error screens) uses the
   system font `FONT_6X8`, and each frame ends with it current, because the
@@ -406,7 +407,7 @@ Files live in `/data/net.picodeck.picosurf/`.
 
 | File | Contents | Cap |
 |---|---|---|
-| `config.json` (`picocalc.config`) | `proxy_url`, `token`, `font` (`sans`, `serif`, `scientifica` or `8x12`), `images` | — |
+| `config.json` (`picocalc.config`) | `proxy_url`, `token`, `font` (`sans`, `serif`, `scientifica`, `8x12` or `system`), `images` | — |
 | `bookmarks.json` | `[{url, title}]`, newest first | 200 |
 | `history.json` | `[{url, title}]`, newest first, revisits move to the top | 100 |
 | `feeds/index.json` | `{next_id, feeds: [{id, url, title, fetched_at, unread}]}` | 50 feeds |

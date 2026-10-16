@@ -69,7 +69,7 @@ read like set type rather than terminal text.
 ## 3. Loading and measuring (`src/fonts.lua`, new)
 
 ```lua
-fonts.CHOICES = { "scientifica", "8x12", "sans", "serif" }
+fonts.CHOICES = { "scientifica", "8x12", "sans", "serif", "system" }
 spec, err = fonts.load(disp, appDir, name)   -- never raises
 fonts.unload(disp, spec)
 ```
@@ -94,6 +94,9 @@ fonts.unload(disp, spec)
     rows and a 12 px indent; its code blocks use Scientifica.
   - 8×12 uses `FONT_8X12` for both regular and bold, with 13 px rows and a
     16 px indent; its code blocks use 8×12.
+  - System uses the system font `FONT_6X8` for regular, bold and code
+    blocks, with 10 px rows (28 on screen) and a 12 px indent. Like 8×12, its
+    headings are marked by colour only.
 - **Sans and Serif:**
   - Each loads its two files with `display.loadFont(appDir .. "/fonts/<name>.pfn")`
     and `<name>-bold.pfn`.
@@ -195,10 +198,12 @@ Box height in rows now depends on the font's row height, so:
 
 ## 7. Settings and config
 
-- `config.json` key `font`: `"scientifica"`, `"8x12"`, `"sans"` or `"serif"`.
+- `config.json` key `font`: `"scientifica"`, `"8x12"`, `"sans"`, `"serif"` or
+  `"system"`.
   Missing or unknown means `"sans"`.
-- Settings shows `Font: Scientifica`, `Font: 8x12 (large)`, `Font: Sans` or
-  `Font: Serif`. Enter steps to the next one, wrapping round.
+- Settings shows `Font: Scientifica`, `Font: 8x12 (large)`, `Font: Sans`,
+  `Font: Serif` or `Font: System (6x8)`. Enter steps to the next one, wrapping
+  round.
 
 ## 8. Errors
 

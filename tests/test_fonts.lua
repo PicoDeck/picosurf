@@ -18,6 +18,10 @@ return {
         local l = fonts.load(d, DIR, "8x12")
         T.eq(l.name, "8x12"); T.eq(l.font, d.FONT_8X12); T.eq(l.bold, d.FONT_8X12)
         T.eq(l.indent, 16); T.eq(l.pre.font, d.FONT_8X12); T.eq(l.pre.cw, 8); T.eq(l.adv.uniform, 8)
+        local y = fonts.load(d, DIR, "system")
+        T.eq(y.name, "system"); T.eq(y.font, d.FONT_6X8); T.eq(y.bold, d.FONT_6X8)
+        T.eq(y.rowH, 10); T.eq(y.indent, 12); T.eq(y.pre.font, d.FONT_6X8); T.eq(y.pre.cw, 6)
+        T.eq(y.adv.uniform, 6); T.eq(#y.loaded, 0)
     end,
     sans_and_serif_load_their_files_and_measure_them = function()
         local F = fakepc.new()
@@ -61,9 +65,10 @@ return {
     choices_cycle_and_unknown_names_mean_sans = function()
         T.eq(fonts.normalize(nil), "sans"); T.eq(fonts.normalize("comic"), "sans"); T.eq(fonts.normalize("8x12"), "8x12")
         T.eq(fonts.nextChoice("scientifica"), "8x12"); T.eq(fonts.nextChoice("8x12"), "sans")
-        T.eq(fonts.nextChoice("sans"), "serif"); T.eq(fonts.nextChoice("serif"), "scientifica")
+        T.eq(fonts.nextChoice("sans"), "serif"); T.eq(fonts.nextChoice("serif"), "system")
+        T.eq(fonts.nextChoice("system"), "scientifica"); T.eq(fonts.normalize("system"), "system")
         T.eq(fonts.LABELS.scientifica, "Scientifica"); T.eq(fonts.LABELS["8x12"], "8x12 (large)")
-        T.eq(fonts.LABELS.sans, "Sans"); T.eq(fonts.LABELS.serif, "Serif")
+        T.eq(fonts.LABELS.sans, "Sans"); T.eq(fonts.LABELS.serif, "Serif"); T.eq(fonts.LABELS.system, "System (6x8)")
     end,
     theme_metrics_come_from_the_font = function()
         local F = fakepc.new()
@@ -74,5 +79,7 @@ return {
         T.eq(th.fontName, "sans"); T.eq(th.rowH, 14); T.eq(th.cw, 6); T.eq(theme.rows(th), 20)
         local m = theme.metrics(th)
         T.eq(m.preCols, 51); T.eq(m.boxRows(120), 9); T.eq(m.adv, th.adv); T.eq(m.boldAdv, th.boldAdv)
+        local sys = theme.new(d, fonts.load(d, DIR, "system"))
+        T.eq(sys.rowH, 10); T.eq(theme.rows(sys), 28); T.eq(theme.metrics(sys).boxRows(120), 13)
     end,
 }

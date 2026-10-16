@@ -3,9 +3,11 @@
 -- so layout can wrap by width.
 local M = {}
 
-M.CHOICES = { "scientifica", "8x12", "sans", "serif" }
+M.CHOICES = { "scientifica", "8x12", "sans", "serif", "system" }
 M.DEFAULT = "sans"
-M.LABELS = { scientifica = "Scientifica", ["8x12"] = "8x12 (large)", sans = "Sans", serif = "Serif" }
+M.LABELS = {
+    scientifica = "Scientifica", ["8x12"] = "8x12 (large)", sans = "Sans", serif = "Serif", system = "System (6x8)",
+}
 
 -- The proportional fonts: their files in the app's fonts/ folder, and row height.
 local FILES = {
@@ -45,8 +47,14 @@ local function measure(disp, id)
     return adv
 end
 
--- Scientifica or 8x12: built into the firmware, and their own code-block font.
+-- Scientifica, 8x12 or the system font (6x8): built into the firmware, and
+-- their own code-block font. Only Scientifica has a bold; 6x8's letters are
+-- 8 px tall, so its rows are closer together.
 local function builtin(disp, name)
+    if name == "system" then
+        local font = disp.FONT_6X8
+        return { name = name, font = font, bold = font, rowH = 10, indent = 12, pre = { font = font, cw = 6 }, loaded = {} }
+    end
     local large = name == "8x12"
     local font = large and disp.FONT_8X12 or disp.FONT_SCIENTIFICA
     local cw = large and 8 or 6

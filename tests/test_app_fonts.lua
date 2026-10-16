@@ -130,6 +130,19 @@ return {
         T.eq(xOf(F, "mmmm iiii"), 4)
         assertWithinPage(F)
     end,
+    the_system_font_reads_on_10_px_rows = function()
+        local app, F = boot({ font = "system" })
+        go(app, F, "fonts.test/")
+        local D = F.pc.display
+        T.eq(app.theme.fontName, "system"); T.eq(app.page.ps.visible, 28)
+        T.eq(F.fontOf("Reading fonts"), D.FONT_6X8, "headings in 6x8, marked by colour")
+        T.eq(F.fontOf("mmmm iiii"), D.FONT_6X8)
+        T.eq(F.fontOf(string.rep("x", 51)), D.FONT_6X8, "code in 6x8")
+        T.eq(xOf(F, "item words"), 16, "item text after the 12 px indent")
+        T.eq(next(F.fontFiles), nil, "no font files loaded")
+        T.ok(F.hasLog("picosurf: font system"))
+        assertWithinPage(F)
+    end,
     a_picture_label_is_cut_to_fit_by_width = function()
         local app, F = boot({ font = "sans", images = "inline" })
         go(app, F, "label.test/")
@@ -154,11 +167,13 @@ return {
         T.eq(theme.rows(app.theme), 20)
         T.ok(F.hasLog("picosurf: font sans"))
     end,
-    settings_step_through_the_four_fonts = function()
+    settings_step_through_the_five_fonts = function()
         local app, F = boot({ font = "sans" })
-        local LABEL = { serif = "Serif", scientifica = "Scientifica", ["8x12"] = "8x12 (large)", sans = "Sans" }
+        local LABEL = {
+            serif = "Serif", system = "System (6x8)", scientifica = "Scientifica", ["8x12"] = "8x12 (large)", sans = "Sans",
+        }
         local seen = {}
-        for _ = 1, 4 do
+        for _ = 1, 5 do
             F.menu["Settings"](); steps(app, 1)
             F.press("down"); F.press("down"); F.press("enter"); steps(app, 1)
             seen[#seen + 1] = F.config.font
@@ -166,7 +181,7 @@ return {
             T.eq(app.theme.fontName, F.config.font)
             F.press("esc"); steps(app, 1)
         end
-        T.eq(table.concat(seen, ","), "serif,scientifica,8x12,sans")
+        T.eq(table.concat(seen, ","), "serif,system,scientifica,8x12,sans")
         local loaded = 0
         for _ in pairs(F.fontFiles) do loaded = loaded + 1 end
         T.eq(loaded, 2, "only the current font's two files stay loaded")
