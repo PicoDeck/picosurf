@@ -134,7 +134,7 @@ async function imageResponse(bytes: Uint8Array, mime: string, resizer: Resizer, 
   const size = imageSize(bytes, type);
   // A zero dimension is unreadable: 0 pixels would slip past the pixel cap.
   if (!size || size.width <= 0 || size.height <= 0) throw new ProxyError(415, "Could not read the image size");
-  if (size.width * size.height > resizer.maxPixels) throw new ProxyError(413, `Image too large (${size.width}x${size.height})`);
+  if (size.width * size.height > resizer.maxPixels(bytes, type)) throw new ProxyError(413, `Image too large (${size.width}x${size.height})`);
   let jpeg: Uint8Array;
   try {
     jpeg = await resizer.resize(bytes, type);

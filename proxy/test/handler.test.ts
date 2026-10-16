@@ -11,7 +11,7 @@ const JPEG_OUT = Uint8Array.of(0xff, 0xd8, 0xff, 0xd9);
 
 function deps(routes: Parameters<typeof fakeFetch>[0] = {}, maxPixels = 16_000_000) {
   const fetch = fakeFetch(routes);
-  const resizer = { maxPixels, resize: vi.fn<Resizer["resize"]>(async () => JPEG_OUT) };
+  const resizer = { maxPixels: vi.fn<Resizer["maxPixels"]>(() => maxPixels), resize: vi.fn<Resizer["resize"]>(async () => JPEG_OUT) };
   return { fetch, resizer, deps: { fetch, resizer } satisfies Deps };
 }
 
@@ -187,6 +187,15 @@ describe("images", () => {
     expect(res.status).toBe(413);
     expect(await res.text()).toBe("Image too large (2000x1000)\n");
     expect(d.resizer.resize).not.toHaveBeenCalled();
+  });
+  it("asks the resizer for the cap of this image", async () => {
+    const d = deps({ "https://example.com/a.png": new Response(imageFixture("photo.png"), { headers: { "Content-Type": "image/png" } }) });
+    await get("https://example.com/a.png", d.deps);
+    expect(d.resizer.maxPixels).toHaveBeenCalledWith(imageFixture("photo.png"), "png");
+  });
+  it("lets through an image of exactly the cap", async () => {
+    const d = deps({ "https://example.com/a.png": new Response(imageFixture("photo.png"), { headers: { "Content-Type": "image/png" } }) }, 800 * 600);
+    expect((await get("https://example.com/a.png", d.deps)).status).toBe(200);
   });
   it("415s an image with a zero dimension without decoding it", async () => {
     const png = new Uint8Array(33);

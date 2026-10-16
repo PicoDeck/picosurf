@@ -35,14 +35,35 @@ class ImageDataShim {
 }
 (globalThis as { ImageData?: unknown }).ImageData ??= ImageDataShim;
 
+// The Workers pixel caps, per decoder; a Worker isolate has 128 MB in all.
+// The figures are RSS growth of a fresh Node process from
+// scripts/measure-images.ts (2026-10-16): "cold" includes instantiating the
+// encoder, "warm" is each further image.
+
 /**
- * The Workers pixel cap. A Worker has 128 MB, and the WASM codecs use about
- * 30 MiB per megapixel. Peak RSS growth of one resize() of a noise JPEG in a
- * fresh Node process (node --expose-gc, 3 runs, 2026-10-15), module
- * instantiation included: 2 MP 64-67 MiB, 3 MP 95-99 MiB, 4 MP 122-131 MiB.
- * With the modules already instantiated: 2 MP 48, 3 MP 78, 4 MP 110 MiB.
- * The cap is the largest of 4, 3 or 2 MP whose growth in a fresh process stays
- * under 90 MiB.
+ * JPEGs decode whole in WASM: a fresh decoder whose heap holds the input and
+ * the RGBA pixels, then jSquash's JS copy of those pixels, so about 8 MiB a
+ * megapixel. An 8 MP photo grows 77 MiB cold and 67 warm (the noisiest
+ * 8 MP JPEG 85 and 71); 4 MP 43 and 37. Lower this to trade large photos
+ * for headroom.
+ */
+export const JPEG_MAX_PIXELS = 8_000_000;
+
+/**
+ * PNGs that stream (png-stream.ts) hold a few rows, so memory does not bound
+ * them (photos up to 12 MP grow under 7 MiB warm; screenshots up to 16, the
+ * inflated chunks waiting for collection). CPU does, at about 15 ns a pixel,
+ * and the 10 MiB body cap does not: deflate packs flat colour about 1000:1,
+ * so a 10 MiB PNG can declare billions of pixels and run past the 30 s CPU
+ * limit instead of getting a clear 413.
+ */
+export const PNG_STREAM_MAX_PIXELS = 100_000_000;
+
+/**
+ * Everything else decodes whole: PNGs that cannot stream (16-bit, under 8
+ * bits, interlaced) in the WASM PNG decoder, whose heap keeps its high-water
+ * mark (24 MiB after a 2 MP PNG; 47 MiB growth cold), WebP in a fresh WASM
+ * decoder, and GIF in JS (omggif).
  */
 export const WASM_MAX_PIXELS = 2_000_000;
 
@@ -97,7 +118,11 @@ export function createWasmResizer(mods: WasmModules): Resizer {
   };
 
   return {
-    maxPixels: WASM_MAX_PIXELS,
+    maxPixels(bytes, type) {
+      if (type === "jpeg") return JPEG_MAX_PIXELS;
+      if (type === "png" && canStreamPng(bytes)) return PNG_STREAM_MAX_PIXELS;
+      return WASM_MAX_PIXELS;
+    },
     resize: (bytes, type) =>
       jobs.run(async () => {
         const scaled = await decodeScaled(bytes, type, decoders);

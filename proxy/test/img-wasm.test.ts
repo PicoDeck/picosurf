@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import sharp, { type Sharp } from "sharp";
 import { handleRequest } from "../src/handler";
-import { WASM_MAX_PIXELS, createWasmResizer } from "../src/img-wasm";
+import { JPEG_MAX_PIXELS, PNG_STREAM_MAX_PIXELS, WASM_MAX_PIXELS, createWasmResizer } from "../src/img-wasm";
 import { jpegInfo } from "../src/imgsize";
 import { canStreamPng } from "../src/png-stream";
 import { fakeFetch } from "./helpers/fakefetch";
-import { encodePng, photo } from "./helpers/png";
-import { resizerContract } from "./helpers/resizer-contract";
+import { SIGNATURE, concat, encodePng, ihdr, photo } from "./helpers/png";
+import { imageFixture, resizerContract } from "./helpers/resizer-contract";
 import { wasmModules } from "./helpers/wasm";
 
 const make = () => createWasmResizer(wasmModules());
@@ -67,5 +67,76 @@ describe("wasm resizer PNG paths", () => {
     );
     expect(res.status).toBe(415);
     expect(await res.text()).toBe("Could not decode the image\n");
+  });
+});
+
+/** GET `url` through the handler with the WASM resizer, the upstream serving `body` as `contentType`. */
+function viaHandler(body: Uint8Array, contentType: string): Promise<Response> {
+  const url = "https://example.com/image";
+  return handleRequest(
+    new Request(`https://proxy.example/v1/get?url=${encodeURIComponent(url)}`, { headers: { Authorization: "Bearer t" } }),
+    { PROXY_TOKEN: "t" },
+    { fetch: fakeFetch({ [url]: new Response(body.slice(), { headers: { "Content-Type": contentType } }) }), resizer: make() },
+  );
+}
+
+const jpegOf = async (width: number, height: number) =>
+  new Uint8Array(await sharp(photo(width, height, 3), { raw: { width, height, channels: 3 } }).jpeg({ quality: 85 }).toBuffer());
+
+describe("wasm resizer pixel caps", () => {
+  it("caps each kind of image by how its decoder uses memory", async () => {
+    const resizer = make();
+    const interlaced = await sharp(photo(50, 40, 3), { raw: { width: 50, height: 40, channels: 3 } }).png({ progressive: true }).toBuffer();
+    expect(resizer.maxPixels(imageFixture("photo.jpg"), "jpeg")).toBe(JPEG_MAX_PIXELS);
+    expect(resizer.maxPixels(imageFixture("photo.png"), "png")).toBe(PNG_STREAM_MAX_PIXELS);
+    expect(resizer.maxPixels(new Uint8Array(interlaced), "png")).toBe(WASM_MAX_PIXELS);
+    expect(resizer.maxPixels(imageFixture("photo.webp"), "webp")).toBe(WASM_MAX_PIXELS);
+    expect(resizer.maxPixels(imageFixture("photo.gif"), "gif")).toBe(WASM_MAX_PIXELS);
+    expect([JPEG_MAX_PIXELS, WASM_MAX_PIXELS, PNG_STREAM_MAX_PIXELS]).toEqual([8_000_000, 2_000_000, 100_000_000]);
+  });
+
+  it("resizes an 8-megapixel JPEG", async () => {
+    const res = await viaHandler(await jpegOf(4000, 2000), "image/jpeg");
+    expect(res.status).toBe(200);
+    expect(jpegSize(new Uint8Array(await res.arrayBuffer()))).toEqual({ width: 320, height: 160 });
+  });
+
+  it("refuses a 9-megapixel JPEG with 413", async () => {
+    const res = await viaHandler(await jpegOf(4000, 2250), "image/jpeg");
+    expect(res.status).toBe(413);
+    expect(await res.text()).toBe("Image too large (4000x2250)\n");
+  });
+
+  it("resizes a 4000x3000 screenshot-like PNG by streaming it", async () => {
+    const [width, height] = [4000, 3000];
+    const pixels = new Uint8Array(width * height * 3).fill(255);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (y % 40 < 14 && x % 9 < 6) pixels.fill(40, (y * width + x) * 3, (y * width + x) * 3 + 3);
+    const png = new Uint8Array(await sharp(pixels, { raw: { width, height, channels: 3 } }).png().toBuffer());
+    const res = await viaHandler(png, "image/png");
+    expect(res.status).toBe(200);
+    expect(jpegSize(new Uint8Array(await res.arrayBuffer()))).toEqual({ width: 320, height: 240 });
+  });
+
+  it.each([
+    ["a streamable PNG over PNG_STREAM_MAX_PIXELS", concat(SIGNATURE, ihdr(10_001, 10_000, 2)), "10001x10000"],
+    ["an interlaced PNG over WASM_MAX_PIXELS", concat(SIGNATURE, ihdr(2001, 1000, 2, 8, 1)), "2001x1000"],
+    ["a 16-bit PNG over WASM_MAX_PIXELS", concat(SIGNATURE, ihdr(2001, 1000, 2, 16)), "2001x1000"],
+  ])("refuses %s with 413", async (_name, png, size) => {
+    const res = await viaHandler(png, "image/png");
+    expect(res.status).toBe(413);
+    expect(await res.text()).toBe(`Image too large (${size})\n`);
+  });
+
+  it("refuses a WebP over WASM_MAX_PIXELS with 413", async () => {
+    const webp = await sharp({ create: { width: 2001, height: 1000, channels: 3, background: "#808080" } }).webp().toBuffer();
+    expect((await viaHandler(new Uint8Array(webp), "image/webp")).status).toBe(413);
+  });
+
+  it("answers 415 for a CMYK JPEG, and the next JPEG still resizes", async () => {
+    const cmyk = await sharp(photo(400, 300, 3), { raw: { width: 400, height: 300, channels: 3 } }).toColourspace("cmyk").jpeg().toBuffer();
+    const res = await viaHandler(new Uint8Array(cmyk), "image/jpeg");
+    expect(res.status).toBe(415);
+    expect(await res.text()).toBe("Could not decode the image\n");
+    expect((await viaHandler(imageFixture("photo.jpg"), "image/jpeg")).status).toBe(200);
   });
 });
