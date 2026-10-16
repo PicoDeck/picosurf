@@ -1,0 +1,27 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the patched parser builds the same tree as before > snippet "</p>stray<p>" 1`] = `"<!DOCTYPE html><html><body><p></p>stray<p></p></body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<a href=1>x<a href=2>y</a>z</a>" 1`] = `"<!DOCTYPE html><html><body><a href="1">x<a href="2">y</a>z</a></body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<b><i>x</b>y</i>z" 1`] = `"<!DOCTYPE html><html><body><b><i>x</i></b>yz</body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<div/><span/>text</div>" 1`] = `"<!DOCTYPE html><html><body><div><span>text</span></div></body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<div><div><div></span></span>x</div>y" 1`] = `"<!DOCTYPE html><html><body><div><div><div>x</div>y</div></div></body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<div>a</span>b</p>c</div></div>" 1`] = `"<!DOCTYPE html><html><body><div>ab<p></p>c</div></body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<h1>a<h2>b</h1>c</h2>" 1`] = `"<!DOCTYPE html><html><body><h1>a<h2>b</h2></h1>c</body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<p>a<br>b<img src=x><hr>c<input>d</br>" 1`] = `"<!DOCTYPE html><html><body><p>a<br>b<img src="x"></p><hr>c<input>d<br></body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<p>one<p>two<ul><li>a<li>b<dl><dt>t<dd>d<dt>u</dl></ul>" 1`] = `"<!DOCTYPE html><html><body><p>one</p><p>two</p><ul><li>a</li><li>b<dl><dt>t</dt><dd>d</dd><dt>u</dt></dl></li></ul></body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<ruby>漢<rt>kan<rp>)</ruby><div><p>x</div>" 1`] = `"<!DOCTYPE html><html><body><ruby>漢<rt>kan</rt><rp>)</rp></ruby><div><p>x</p></div></body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<select><option>a<option>b<optgroup><option>c</select>" 1`] = `"<!DOCTYPE html><html><body><select><option>a</option><option>b</option><optgroup><option>c</option></optgroup></select></body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<svg><circle/><g><path/></g></svg><math><mi>x</mi></math><p/>q" 1`] = `"<!DOCTYPE html><html><body><svg><circle /><g><path /></g></svg><math><mi>x</mi></math><p>q</p></body></html>"`;
+
+exports[`the patched parser builds the same tree as before > snippet "<table><tr><td>1<td>2<tr><td>3</table>after" 1`] = `"<!DOCTYPE html><html><body><table><tr><td>1</td><td>2</td></tr><tr><td>3</td></tr></table>after</body></html>"`;

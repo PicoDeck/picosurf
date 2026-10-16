@@ -160,6 +160,60 @@ describe("links and images", () => {
   });
 });
 
+describe("headings that are links", () => {
+  it("renders a heading whose only content is a same-page anchor link as a plain heading", () => {
+    expect(gmi('<h3 id="x"><a href="#x">Title</a></h3>')).toBe("### Title\n");
+  });
+});
+
+describe("dated lists laid out by CSS", () => {
+  const list = (sep: string) =>
+    `<p class="article-list"><time>Sep 27 2026</time>${sep}<a href="/one">First post</a>${sep}<time>Sep 20 2026</time>${sep}<a href="/two">Second post</a></p>`;
+  const expected =
+    "Sep 27 2026 First post [1]\nSep 20 2026 Second post [2]\n=> https://example.com/one [1] First post\n=> https://example.com/two [2] Second post\n";
+
+  it("puts each repeated time + link on its own line (with whitespace)", () => {
+    expect(gmi(list("\n"))).toBe(expected);
+  });
+  it("does the same without whitespace between the elements", () => {
+    expect(gmi(list(""))).toBe(expected);
+  });
+  it("separates a time from a directly following element", () => {
+    expect(gmi("<p><time>Jan 1</time><span>One</span></p>")).toBe("Jan 1 One\n");
+  });
+  it("does not space punctuation or an ordinal suffix after a time", () => {
+    expect(gmi("<p><time>Jan 1</time><em>.</em></p>")).toBe("Jan 1.\n");
+    expect(gmi("<p><time>Jan 1</time><sup>st</sup> party</p>")).toBe("Jan 1st party\n");
+    expect(gmi("<p><time>Jan 1</time><span hidden>x</span>, ok</p>")).toBe("Jan 1, ok\n");
+  });
+  it("separates a wrapped time from a following link", () => {
+    expect(gmi('<p><span><time>Jan 1</time></span><a href="/one">One</a></p>')).toBe("Jan 1 One [1]\n=> https://example.com/one [1] One\n");
+  });
+  it("keeps punctuation after a time attached", () => {
+    expect(gmi("<p>Posted <time>Jan 1</time>, by me</p>")).toBe("Posted Jan 1, by me\n");
+  });
+  it("keeps a range of times on one line", () => {
+    expect(gmi("<p>Open <time>9:00</time> to <time>17:00</time> daily</p>")).toBe("Open 9:00 to 17:00 daily\n");
+  });
+  it("keeps a published/updated pair on one line", () => {
+    expect(gmi("<p>Published <time>Jan 1</time>, updated <time>Feb 2</time></p>")).toBe("Published Jan 1, updated Feb 2\n");
+  });
+  it("leaves a single inline time on one line", () => {
+    expect(gmi("<p>Posted <time>Jan 1</time> by me</p>")).toBe("Posted Jan 1 by me\n");
+  });
+  it("keeps <li><time>..</time> <span>..</span></li> as one item", () => {
+    expect(gmi("<ul><li><time>Jan 1</time> <span>Event</span></li></ul>")).toBe("* Jan 1 Event\n");
+  });
+  it("keeps table rows with a time per cell on one line", () => {
+    expect(gmi("<table><tr><td><time>Jan 1</time></td><td><time>Jan 2</time></td></tr></table>")).toBe("Jan 1 | Jan 2\n");
+  });
+  it("still splits at <br>, and keeps <dl> and block-level items as they were", () => {
+    expect(gmi("<p>a<br>b</p>")).toBe("a\nb\n");
+    expect(gmi("<dl><dt>Term</dt><dd>Meaning</dd></dl>")).toBe("Term\n\nMeaning\n");
+    expect(gmi("<ul><li><div>One</div><div>Two</div></li></ul>")).toBe("* One Two\n");
+  });
+});
+
 describe("pickFromSrcset", () => {
   it("prefers the width nearest the target", () => expect(pickFromSrcset("u.jpg 300w,v.jpg 700w")).toBe("v.jpg"));
   it("takes the 1x density candidate", () => expect(pickFromSrcset("a.jpg 1x,b.jpg 2x")).toBe("a.jpg"));

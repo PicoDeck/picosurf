@@ -26,9 +26,8 @@ export function resizerContract(name: string, make: () => Promise<Resizer>): voi
       resizer = await make();
     });
 
-    it("declares a positive pixel cap", () => {
-      expect(typeof resizer.maxPixels).toBe("number");
-      expect(resizer.maxPixels).toBeGreaterThan(0);
+    it.each(CASES)("declares a pixel cap for %s that lets it through", (file, type, _w, _h) => {
+      expect(resizer.maxPixels(imageFixture(file), type)).toBeGreaterThanOrEqual(800 * 600);
     });
 
     it.each(CASES)("%s (%s) → baseline JPEG %dx%d", async (file, type, width, height) => {

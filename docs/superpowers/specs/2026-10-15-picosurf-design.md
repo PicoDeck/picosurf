@@ -128,10 +128,11 @@ shows as is.
 | 400 | missing or malformed `url`, or a scheme other than http/https |
 | 401 | missing or wrong token (compared in constant time) |
 | 403 | the target resolves to a blocked address |
-| 413 | upstream body over the cap, or an image over 16 megapixels |
-| 415 | unsupported content type, or no feed found |
+| 413 | upstream body over the cap, an image over its pixel cap (5.8), or a page with more than 200,000 elements (`Page is too large to read (over 200,000 elements)`; counted with the parser before any DOM is built) |
+| 415 | unsupported content type, no feed found, or an image that cannot be decoded (on Workers also a CMYK JPEG, or one of over 100 scans) |
 | 500 | `PROXY_TOKEN` not configured (fail closed; no request is served) |
 | 502 | upstream error, with the upstream status in `X-Upstream-Status`, e.g. `Site returned 404 Not Found` |
+| 503 | Workers only: two of a format's decoders gave up on broken images and are not yet freed; that format's images wait (`Retry-After: 60`), see 5.8 |
 | 504 | upstream timeout |
 
 ### 5.4 safefetch
@@ -189,6 +190,7 @@ Page header:
 | inline `code` | text kept in backticks |
 | `em`, `strong`, other inline formatting | text only |
 | `table` | one text line per row, cells joined with ` \| ` |
+| a `<time>` after a link that follows an earlier `<time>` in the same text block | starts a new text line (sites lay out dated lists with CSS: time, link, time, link); times with no link between them (ranges, published/updated pairs) stay on one line; a `<time>` directly followed by an element gets a space after it |
 | `img` | `=> <absolute src> [IMG] <alt or "image">`; from `srcset`, the candidate closest to 640w |
 | `figcaption` | a text line after the image line |
 | inline `a` | link text stays in the block, followed by ` [n]`; after the block, one `=> <url> [n] <link text>` line per link. `n` is unique across the page; repeated URLs within a page reuse their number. |
@@ -230,14 +232,30 @@ Known v1 limitation: non-Latin scripts render as `?`.
 
 A `Resizer` interface, `resize(bytes, type) → jpegBytes`, with two
 implementations:
-- **Workers:** jSquash WASM codecs (JPEG, PNG and WebP decode; resize;
-  MozJPEG encode with progressive off), plus `omggif` for the first frame of a
-  GIF. Needs no other Cloudflare product.
+- **Workers:** PNGs (every colour type, bit depth and interlacing) stream:
+  a zlib inflater in JS writes into a fixed 64 KiB window and each row is
+  unfiltered as it arrives, so memory does not depend on the image's size or
+  how far its data expands. JPEG and WebP decode with jSquash WASM codecs,
+  one long-lived instance each, scaling straight from the decoder's heap with
+  no full-size copy; WASM memory never shrinks and is freed only when the
+  garbage collector gets to it, so a fresh instance per image would pile up.
+  A decode that throws (mozjpeg calls exit() on a broken JPEG) costs the
+  instance: the next image gets a new one, and while two dropped instances
+  of a codec wait for the garbage collector, that codec's images get 503.
+  CMYK and YCCK JPEGs and JPEGs of over 100 scans are refused (415) before
+  decoding. GIF uses `omggif` (first frame). A box filter in JS scales the
+  image down, and MozJPEG (WASM) encodes it with progressive off. An isolate
+  runs one image at a time. Needs no other Cloudflare product.
 - **Node:** sharp (`.jpeg({ progressive: false })`).
 
 Output fits within 320×320, keeps the aspect ratio, is never enlarged, and is
-quality 75. Inputs over 16 megapixels are refused (413) to stay inside the
-Worker's 128 MB memory limit.
+quality 75. Images over the resizer's pixel cap are refused (413) before
+decoding. The cap is 16 megapixels with sharp. On Workers, to stay inside
+the 128 MB isolate, it bounds each long-lived decoder heap: a JPEG may have
+as many pixels as its decode fits in 48 MiB (at most 8 megapixels; less for
+progressive JPEGs), a WebP as many as fit in 32 MiB (at most 2). PNGs may
+have 100 megapixels, at most 100,000 pixels each way, which caps CPU time
+rather than memory. GIFs may have 2 megapixels (`proxy/README.md`).
 
 Cloudflare Image Transformations (`fetch(url, { cf: { image } })`) would save
 Worker CPU but need the product enabled on a domain you own. It's a possible
@@ -257,7 +275,10 @@ proxy/
   src/ascii.ts        folding (5.6)
   src/feed.ts         RSS/Atom → feed list; feed discovery
   src/img.ts          Resizer interface; img-wasm.ts, img-sharp.ts
+  src/png-stream.ts   row-by-row PNG decoder (Workers); src/inflate.ts its zlib inflater
+  src/boxscale.ts     box-filter downscale (Workers)
   scripts/smoke.ts    live smoke run (7.1)
+  scripts/measure-images.ts  memory of the Workers resizer, behind its caps
   test/
 ```
 
@@ -438,8 +459,8 @@ Files live in `/data/net.picodeck.picosurf/`.
   a host name that resolves to a private address.
 - `handler`: missing token, wrong token, unset `PROXY_TOKEN`, bad `url`, each
   error status in 5.3.
-- `img`: each input format gives a baseline JPEG within 320×320; over 16
-  megapixels gives 413.
+- `img`: each input format gives a baseline JPEG within 320×320; over the
+  resizer's pixel cap gives 413.
 
 **Snapshot fixtures** (committed, permissive licences only), page HTML saved
 with the expected gemtext:
