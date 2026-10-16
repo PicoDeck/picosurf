@@ -62,7 +62,8 @@ function App:saveConfig(key, value)
 end
 
 -- Settings -> Images (inline images spec 5.6): saves the choice and applies it
--- to the page on screen. Off, the page is laid out again with link lines.
+-- to the page on screen. Off, the page is laid out again with link lines, and
+-- a full collection frees the dropped pictures' pixels (see decodeInline).
 function App:setImages(mode)
     self:saveConfig("images", mode)
     local p = self.page
@@ -73,6 +74,7 @@ function App:setImages(mode)
         self:cancelInline(p)
         p.inline = nil
         self:relayout()
+        collectgarbage()
     end
 end
 
@@ -460,6 +462,10 @@ function App:decodeInline(p, u)
         end
         return
     end
+    -- The pixels (2 bytes each) live outside the Lua heap, freed only by the
+    -- picture's finaliser: tell the collector about them as if Lua had
+    -- allocated them, so dropped pictures are collected while scrolling.
+    collectgarbage("step", (w * h * 2) // 1024)
     local e = st.byUrl[u]
     e.img, e.w, e.h = img, w, h
     st:touch(u)

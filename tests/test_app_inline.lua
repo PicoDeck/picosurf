@@ -136,6 +136,29 @@ local function toggleImages(app, F)
     F.press("down"); F.press("down"); F.press("down"); F.press("enter"); steps(app, 1)
 end
 
+-- Runs fn with the global collectgarbage recording its calls (and still
+-- collecting): returns the calls, each a list of its arguments. The global is
+-- put back even when fn fails.
+local function gcCalls(fn)
+    local real, calls = collectgarbage, {}
+    collectgarbage = function(...)
+        calls[#calls + 1] = { ... }
+        return real(...)
+    end
+    local ok, err = pcall(fn)
+    collectgarbage = real
+    if not ok then error(err, 0) end
+    return calls
+end
+
+-- Whether calls holds collectgarbage(opt, arg); a full collection is opt "collect" or no arguments.
+local function called(calls, opt, arg)
+    for _, c in ipairs(calls) do
+        if (c[1] or "collect") == opt and c[2] == arg then return true end
+    end
+    return false
+end
+
 return {
     pictures_load_in_order_and_grow_their_boxes = function()
         local app, F = boot({ images = "inline" })
@@ -307,6 +330,20 @@ return {
         app:step()
         T.eq(#F.decoded, before + 2, "picture two the step after")
         T.eq(boxRows(app, 2), 10)
+    end,
+    decoded_pictures_are_counted_by_the_collector = function()
+        local app, F = boot({ images = "inline" })
+        local calls = gcCalls(function()
+            go(app, F, "pics.test/")
+            steps(app, 3)
+        end)
+        T.eq(boxRows(app, 2), 10)
+        -- A decoded picture's pixels (2 bytes each) live outside the Lua heap.
+        T.ok(called(calls, "step", 39), "a step for picture one's 200x100 pixels")
+        T.ok(called(calls, "step", 76), "and for picture two's 312x126")
+        calls = gcCalls(function() toggleImages(app, F) end)
+        T.eq(app.page.inline, nil)
+        T.ok(called(calls, "collect"), "Links: a full collection lets the pictures go")
     end,
     draws_a_picture_in_its_box = function()
         local app, F = boot({ images = "inline" })
