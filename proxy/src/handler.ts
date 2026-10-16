@@ -5,8 +5,8 @@ import { foldAscii } from "./ascii";
 import { decodeText, imageTypeFromMime, kindFromMime, mimeOf, sniffImageType, sniffKind } from "./content";
 import { ProxyError, textResponse } from "./errors";
 import { feedToGemtext, parseFeed } from "./feed";
-import type { Resizer } from "./img";
-import { imageSize } from "./imgsize";
+import { DEFAULT_BOX, MAX_SIDE, type Resizer } from "./img";
+import { type Size, imageSize } from "./imgsize";
 import { discoverFeed, renderPage } from "./page";
 import { type FetchFn, type SafeFetchOptions, type Upstream, safeFetch } from "./safefetch";
 
@@ -36,6 +36,16 @@ export async function handleRequest(req: Request, env: Env, deps: Deps): Promise
   }
 }
 
+/** `fit=WxH`: the box an image is scaled into, each side 1-320 (spec 5.1). Without it, 320x320. */
+export function parseFit(value: string | null): Size {
+  if (value === null) return DEFAULT_BOX;
+  const m = /^(\d{1,3})x(\d{1,3})$/.exec(value);
+  const width = m ? Number(m[1]) : 0;
+  const height = m ? Number(m[2]) : 0;
+  if (width < 1 || width > MAX_SIDE || height < 1 || height > MAX_SIDE) throw new ProxyError(400, "Bad fit parameter");
+  return { width, height };
+}
+
 async function route(req: Request, env: Env, deps: Deps): Promise<Response> {
   const url = new URL(req.url);
   const isPing = url.pathname.endsWith("/v1/ping");
@@ -49,6 +59,7 @@ async function route(req: Request, env: Env, deps: Deps): Promise<Response> {
   if (!target) throw new ProxyError(400, "Missing url parameter");
   const as = url.searchParams.get("as") ?? "reader";
   if (as !== "reader" && as !== "full" && as !== "feed") throw new ProxyError(400, `Unknown as=${as}`);
+  const box = parseFit(url.searchParams.get("fit"));
 
   const opts: SafeFetchOptions = { fetch: deps.fetch, userAgent: env.USER_AGENT || DEFAULT_UA };
   const up = await safeFetch(target, opts);
@@ -79,7 +90,7 @@ async function route(req: Request, env: Env, deps: Deps): Promise<Response> {
     case "feed":
       return feedResponse(decodeText(body, up.contentType), up.finalUrl);
     case "image":
-      return imageResponse(body, mime, deps.resizer, final);
+      return imageResponse(body, mime, deps.resizer, final, box);
     case "text":
       return plainText(decodeText(body, up.contentType), final);
     default:
@@ -128,7 +139,7 @@ function feedResponse(xml: string, finalUrl: string): Response {
   return gemtext(feedToGemtext(feed), { "X-Final-Url": finalUrl, "X-Mode": "feed", "X-Title": headerValue(feed.title) });
 }
 
-async function imageResponse(bytes: Uint8Array, mime: string, resizer: Resizer, headers: Record<string, string>): Promise<Response> {
+async function imageResponse(bytes: Uint8Array, mime: string, resizer: Resizer, headers: Record<string, string>, box: Size): Promise<Response> {
   const type = sniffImageType(bytes) ?? imageTypeFromMime(mime);
   if (!type) throw new ProxyError(415, `Unsupported image: ${mime || "unknown type"}`);
   const size = imageSize(bytes, type);
@@ -137,7 +148,7 @@ async function imageResponse(bytes: Uint8Array, mime: string, resizer: Resizer, 
   if (size.width * size.height > resizer.maxPixels(bytes, type)) throw new ProxyError(413, `Image too large (${size.width}x${size.height})`);
   let jpeg: Uint8Array;
   try {
-    jpeg = await resizer.resize(bytes, type);
+    jpeg = await resizer.resize(bytes, type, box);
   } catch (e) {
     // A resizer may refuse with its own status and reason; any other failure is undecodable data.
     if (e instanceof ProxyError) throw e;

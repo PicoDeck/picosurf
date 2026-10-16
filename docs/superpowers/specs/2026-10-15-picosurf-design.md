@@ -89,13 +89,17 @@ proxy/                   TypeScript proxy (5.9); left out of the release ZIP
 
 ```
 GET /v1/ping                         → 200 text/plain "picosurf-proxy 1"
-GET /v1/get?url=<absolute URL>[&as=reader|full|feed]
+GET /v1/get?url=<absolute URL>[&as=reader|full|feed][&fit=<W>x<H>]
 Authorization: Bearer <token>        (required on both endpoints)
 ```
 
 `/v1/ping` needs the token, so "Test connection" checks the URL and the token
 together. The `/v1/` prefix lets an incompatible API run alongside the
 current one later.
+
+`fit` (W and H each 1-320) scales an image to fit W×H instead of 320×320;
+pages, feeds and text ignore it. The app asks for `fit=312x126` for inline
+pictures (`2026-10-16-picosurf-inline-images-design.md`).
 
 ### 5.2 Responses, chosen by what the site sends
 
@@ -104,7 +108,7 @@ current one later.
 | HTML | `200 text/gemini; charset=us-ascii`: reader mode, falling back to the full page (5.5). `as=full` forces the full page. |
 | RSS 2.0 / Atom | `200 text/gemini`: the feed list (5.7) |
 | HTML with `as=feed` | Look for `<link rel="alternate" type="application/rss+xml\|application/atom+xml">`, fetch it and return the feed list; none found → `415 No feed found on this page` |
-| `image/jpeg`, `png`, `webp`, `gif` | `200 image/jpeg`, baseline, fit within 320×320 (5.8) |
+| `image/jpeg`, `png`, `webp`, `gif` | `200 image/jpeg`, baseline, fit within 320×320, or the `fit` box (5.1, 5.8) |
 | `text/plain` | `200 text/plain; charset=us-ascii`, ASCII-folded |
 | anything else, SVG included | `415` with a reason, e.g. `Unsupported: application/pdf (2.3 MB)` |
 
@@ -125,7 +129,7 @@ shows as is.
 
 | Status | When |
 |---|---|
-| 400 | missing or malformed `url`, or a scheme other than http/https |
+| 400 | missing or malformed `url`, a scheme other than http/https, or a malformed `fit` (`Bad fit parameter`) |
 | 401 | missing or wrong token (compared in constant time) |
 | 403 | the target resolves to a blocked address |
 | 413 | upstream body over the cap, an image over its pixel cap (5.8), or a page with more than 200,000 elements (`Page is too large to read (over 200,000 elements)`; counted with the parser before any DOM is built) |
@@ -248,8 +252,8 @@ implementations:
   runs one image at a time. Needs no other Cloudflare product.
 - **Node:** sharp (`.jpeg({ progressive: false })`).
 
-Output fits within 320×320, keeps the aspect ratio, is never enlarged, and is
-quality 75. Images over the resizer's pixel cap are refused (413) before
+Output fits within 320×320 (or the `fit` box, 5.1), keeps the aspect ratio, is
+never enlarged, and is quality 75. Images over the resizer's pixel cap are refused (413) before
 decoding. The cap is 16 megapixels with sharp. On Workers, to stay inside
 the 128 MB isolate, it bounds each long-lived decoder heap: a JPEG may have
 as many pixels as its decode fits in 48 MiB (at most 8 megapixels; less for
@@ -458,9 +462,9 @@ Files live in `/data/net.picodeck.picosurf/`.
   redirect limit; body caps while streaming; the Node lookup hook rejecting
   a host name that resolves to a private address.
 - `handler`: missing token, wrong token, unset `PROXY_TOKEN`, bad `url`, each
-  error status in 5.3.
-- `img`: each input format gives a baseline JPEG within 320×320; over the
-  resizer's pixel cap gives 413.
+  error status in 5.3, `fit` parsing.
+- `img`: each input format gives a baseline JPEG within 320×320, or within a
+  `fit` box; over the resizer's pixel cap gives 413.
 
 **Snapshot fixtures** (committed, permissive licences only), page HTML saved
 with the expected gemtext:

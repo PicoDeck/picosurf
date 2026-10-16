@@ -151,12 +151,46 @@ describe("feeds", () => {
 });
 
 describe("images", () => {
+  const png = () => ({ "https://example.com/a.png": new Response(imageFixture("photo.png"), { headers: { "Content-Type": "image/png" } }) });
+  const withFit = (fit: string) => `/v1/get?url=${encodeURIComponent("https://example.com/a.png")}&fit=${encodeURIComponent(fit)}`;
+
+  it("scales into the fit box, and into 320x320 without one", async () => {
+    const d = deps(png());
+    expect((await call(withFit("312x126"), d.deps)).status).toBe(200);
+    expect(d.resizer.resize).toHaveBeenLastCalledWith(imageFixture("photo.png"), "png", { width: 312, height: 126 });
+    const d2 = deps(png());
+    await get("https://example.com/a.png", d2.deps);
+    expect(d2.resizer.resize).toHaveBeenLastCalledWith(imageFixture("photo.png"), "png", { width: 320, height: 320 });
+  });
+
+  it.each(["1x1", "320x320", "010x9"])("takes fit=%s", async (fit) => {
+    expect((await call(withFit(fit), deps(png()).deps)).status).toBe(200);
+  });
+
+  it.each(["0x10", "321x10", "10x321", "10", "10x", "x10", "1e2x10", "abc", "10x10x10", " 10x10", "1000x10", ""])(
+    "400s fit=%j before fetching anything",
+    async (fit) => {
+      const d = deps(png());
+      const res = await call(withFit(fit), d.deps);
+      expect(res.status).toBe(400);
+      expect(await res.text()).toBe("Bad fit parameter\n");
+      expect(d.fetch.calls).toHaveLength(0);
+    },
+  );
+
+  it("ignores fit for pages", async () => {
+    const d = deps({ "https://example.com/": html(articleHtml()) });
+    const res = await call(`/v1/get?url=${encodeURIComponent("https://example.com/")}&fit=10x10`, d.deps);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/gemini");
+  });
+
   it("resizes an image to JPEG", async () => {
     const d = deps({ "https://example.com/a.png": new Response(imageFixture("photo.png"), { headers: { "Content-Type": "image/png" } }) });
     const res = await get("https://example.com/a.png", d.deps);
     expect(res.headers.get("Content-Type")).toBe("image/jpeg");
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(JPEG_OUT);
-    expect(d.resizer.resize).toHaveBeenCalledWith(expect.any(Uint8Array), "png");
+    expect(d.resizer.resize).toHaveBeenCalledWith(expect.any(Uint8Array), "png", { width: 320, height: 320 });
   });
   it("trusts the bytes over a wrong or missing Content-Type (Review Focus 4)", async () => {
     const d = deps({

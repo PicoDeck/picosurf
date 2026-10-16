@@ -11,11 +11,13 @@ It keeps no state, and every request needs your token.
 
 ```
 GET /v1/ping                                          → 200 "picosurf-proxy 1"
-GET /v1/get?url=<absolute URL>[&as=reader|full|feed]
+GET /v1/get?url=<absolute URL>[&as=reader|full|feed][&fit=<W>x<H>]
 Authorization: Bearer <token>
 ```
 
 Response headers: `X-Final-Url`, `X-Title`, `X-Mode`, `X-Feed-Url`, `X-Truncated`, `X-Coverage`. Errors are one line of plain text with a status code: 400, 401, 403, 404 (unknown path), 405 (anything but GET), 413, 415, 500, 502, 503 (Workers, after broken images; see below) or 504. A 502 caused by the upstream site also carries `X-Upstream-Status`.
+
+`fit` scales an image to fit within W×H pixels instead of 320×320. W and H are whole numbers from 1 to 320; anything else gets 400 `Bad fit parameter`. Pages, feeds and text ignore it. PicoSurf's inline pictures (Settings → Images: Inline) ask for `fit=312x126`, so they need a proxy from this version on: redeploy it when you update the app.
 
 Reader mode needs an article of at least 500 characters. An article under 3000 characters must also cover at least a quarter of the page's visible text; otherwise the proxy returns the full page. `X-Coverage` reports that share with two decimals, for example `0.94`. It is sent only in reader mode, and only when the share was measured, which is for articles under 3000 characters.
 
