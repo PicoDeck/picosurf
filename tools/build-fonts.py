@@ -9,13 +9,15 @@ usage: tools/build-fonts.py ADOBE_75DPI UTOPIA_75DPI
                 (both from https://www.x.org/releases/individual/font/)
 
 PicoDeck's tools/mkfont.py does the conversion (PICODECK_ROOT, default
-~/Projects/PicoDeck/picodeck). The archives are only read: their BDFs are
-parsed as text, and nothing in them is run. Before mkfont.py, each BDF is
-cut to ASCII with a tight bounding box, glyphs whose ink overhangs their
-advance get a wider advance, and over-padded bitmap rows are trimmed;
-mkfont.py gets all three wrong (PicoDeck issue #74).
+~/Projects/PicoDeck/picodeck). The archives are only read, each once, so the
+bytes whose SHA-256 is checked are the bytes unpacked: their BDFs are parsed
+as text, and nothing in them is run. Before mkfont.py, each BDF is cut to
+ASCII with a tight bounding box, glyphs whose ink overhangs their advance get
+a wider advance, and over-padded bitmap rows are trimmed; mkfont.py gets all
+three wrong (PicoDeck issue #74).
 """
 import hashlib
+import io
 import os
 import subprocess
 import sys
@@ -45,14 +47,6 @@ LICENSE_PARTS = [
     ("utopia", "serif.pfn and serif-bold.pfn: Utopia Regular 10 and Utopia Bold 10\n"
                "(UTRG__10, UTB___10) from X.Org font-adobe-utopia-75dpi 1.0.5."),
 ]
-
-
-def sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 16), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def member_text(tar, top, name):
@@ -130,8 +124,10 @@ def main(argv):
     if len(argv) != 3:
         raise SystemExit(__doc__)
     paths = {"adobe": Path(argv[1]), "utopia": Path(argv[2])}
+    archives = {}
     for key, (top, digest) in ARCHIVES.items():
-        if sha256(paths[key]) != digest:
+        archives[key] = paths[key].read_bytes()
+        if hashlib.sha256(archives[key]).hexdigest() != digest:
             raise SystemExit(f"{paths[key]}: SHA-256 does not match {top}")
     root = Path(os.environ.get("PICODECK_ROOT", Path.home() / "Projects/PicoDeck/picodeck"))
     mkfont = root / "tools" / "mkfont.py"
@@ -140,9 +136,9 @@ def main(argv):
     OUT.mkdir(exist_ok=True)
     licences = {}
     with tempfile.TemporaryDirectory() as tmp:
-        for key, path in paths.items():
+        for key, data in archives.items():
             top = ARCHIVES[key][0]
-            with tarfile.open(path, "r:xz") as tar:
+            with tarfile.open(fileobj=io.BytesIO(data), mode="r:xz") as tar:
                 licences[key] = member_text(tar, top, "COPYING")
                 for name, (archive, bdf) in FONTS.items():
                     if archive != key:

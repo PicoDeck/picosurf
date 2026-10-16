@@ -38,7 +38,7 @@ The system menu has Reload, Edit URL, Mark all read and Settings.
 
 ## Credits
 The Sans and Serif reading fonts are converted from X.Org's Adobe bitmap fonts by `tools/build-fonts.py`; [fonts/LICENSE](fonts/LICENSE) has their licences.
-- Sans: Helvetica 12. Copyright 1984-1989, 1994 Adobe Systems Incorporated. Copyright 1988, 1994 Digital Equipment Corporation.
+- Sans: Helvetica 12. Copyright 1984-1989, 1994 Adobe Systems Incorporated. Copyright 1988, 1994 Digital Equipment Corporation. Helvetica is a trademark of Linotype-Hell AG and/or its subsidiaries.
 - Serif: Utopia 10. Copyright (c) 1989 Adobe Systems Incorporated. Utopia (R) is a registered trademark of Adobe Systems Incorporated.
 
 ## Development
