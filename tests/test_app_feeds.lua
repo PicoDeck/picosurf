@@ -4,7 +4,16 @@ local App = require("src.app")
 
 local FEED = "# Blog\n\n=> https://blog.test/1 2026-10-13 One\n=> https://blog.test/2 2026-10-12 Two\n=> https://blog.test/3 Undated\n"
 local NEWS = "# News\n\n=> https://news.test/1 2026-10-14 Headline\n"
+local LONGFEED = { "# Long\n\n" }
+for i = 1, 30 do
+    LONGFEED[#LONGFEED + 1] = string.format("=> https://long.test/%d 2026-10-%02d Item %d %s\n", i, i % 28 + 1, i,
+        string.rep("wordy title ", i % 7 + 2))
+end
+LONGFEED = table.concat(LONGFEED)
 local ROUTES = {
+    ["https://long.test/"] = { title = "Long", feed = "https://long.test/feed.xml", body = "# Long\n" },
+    ["https://long.test/|feed"] = { title = "Long", final = "https://long.test/feed.xml", mode = "feed", body = LONGFEED },
+    ["https://long.test/feed.xml|feed"] = { title = "Long", mode = "feed", body = LONGFEED },
     ["https://blog.test/"] = { title = "Blog", feed = "https://blog.test/feed.xml", body = "# Blog\n\nHello.\n" },
     ["https://blog.test/|feed"] = { title = "Blog", final = "https://blog.test/feed.xml", mode = "feed", body = FEED },
     ["https://blog.test/feed.xml|feed"] = { title = "Blog", mode = "feed", body = FEED },
@@ -43,7 +52,32 @@ local function subscribe(app, F, site)
     steps(app)
 end
 
+for i = 1, 30 do ROUTES["https://long.test/" .. i] = { title = "Item", body = "# Item\n" } end
+
+-- Settings, then the Font row (the third): steps to the next font; Esc back.
+local function nextFont(app, F)
+    F.menu["Settings"](); steps(app, 1)
+    F.press("down"); F.press("down"); F.press("enter"); steps(app, 1)
+    F.press("esc"); steps(app, 1)
+end
+
 return {
+    back_to_a_feed_list_across_a_font_change_keeps_its_line = function()
+        local app, F = boot()
+        subscribe(app, F, "long.test/")
+        F.press("f2"); F.press("enter"); steps(app, 1)
+        for _ = 1, 25 do F.press("down") end
+        steps(app, 1)
+        T.ok(app.page.ps.top > 1, "scrolled")
+        local line = app.page.L.line[app.page.ps.top]
+        F.press("enter"); steps(app)
+        T.ok(not app.page.isFeedList, "an article")
+        nextFont(app, F); nextFont(app, F) -- scientifica -> 8x12 -> sans
+        T.eq(app.cfg.font, "sans")
+        F.press("backspace"); steps(app, 2)
+        T.eq(app.page.isFeedList, true)
+        T.eq(app.page.L.line[app.page.ps.top], line, "the same line at the top")
+    end,
     f5_subscribes_from_a_homepage = function()
         local app, F = boot()
         subscribe(app, F, "blog.test/")

@@ -337,6 +337,15 @@ local function firstRowOf(L, li)
     return lo
 end
 
+-- The top row to restore: the saved row, unless those rows were counted in
+-- another layout (another font, or picture boxes now gone), when the saved
+-- source line goes back to the top instead (proportional fonts spec 5.3).
+local function restoreTop(L, restore, fontName, boxesGone)
+    local relaid = restore.font ~= fontName or boxesGone
+    if relaid and restore.line then return firstRowOf(L, restore.line) end
+    return restore.top
+end
+
 -- Parses and lays out a page. With Images set to Inline, a page restored by
 -- Back or Reload gets its boxes back, so the saved scroll position points at
 -- the same content (inline images spec 5.6). With Images now Links, or after
@@ -355,12 +364,7 @@ function App:buildPage(finalUrl, mode, r, restore)
     }
     page.ps = pagestate.new(L, theme.rows(self.theme))
     if restore then
-        local top = restore.top
-        -- The saved rows were counted in another layout (other font, or boxes
-        -- now gone): the saved source line goes back to the top instead.
-        local relaid = restore.font ~= self.theme.fontName or (restore.boxes and not boxes)
-        if relaid and restore.line then top = firstRowOf(L, restore.line) end
-        page.ps:restore(top, restore.sel)
+        page.ps:restore(restoreTop(L, restore, self.theme.fontName, restore.boxes and not boxes), restore.sel)
     end
     if self.cfg.images == "inline" then page.inline = inline.new(boxes) end
     return page
@@ -737,7 +741,9 @@ function App:showFeed(feed, opts)
         isFeedList = true, feedId = feed.id,
     }
     page.ps = pagestate.new(L, theme.rows(self.theme))
-    if opts.restore then page.ps:restore(opts.restore.top, opts.restore.sel) end
+    if opts.restore then
+        page.ps:restore(restoreTop(L, opts.restore, self.theme.fontName, false), opts.restore.sel)
+    end
     if opts.push ~= false and self.page then self:pushBack() end
     self:cancelInline(self.page)
     self.page = page
