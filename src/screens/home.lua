@@ -41,7 +41,7 @@ function S.draw(app)
         local hint = HINTS[TABS[h.tab]]
         local s, e = wrap.wrap(hint, theme.uiCols(th))
         for k = 1, #s do
-            app.disp.drawText(th.margin, LIST_TOP + 20 + (k - 1) * th.rowH, hint:sub(s[k], e[k]), th.dim, false)
+            app.disp.drawText(th.margin, LIST_TOP + 20 + (k - 1) * th.uiRowH, hint:sub(s[k], e[k]), th.dim, false)
         end
     end
     for i = top, math.min(#list, top + VISIBLE - 1) do

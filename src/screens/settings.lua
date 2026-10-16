@@ -45,7 +45,7 @@ function S.draw(app)
         local s, e = wrap.wrap(n, cols)
         for k = 1, #s do
             d.drawText(th.margin, y, n:sub(s[k], e[k]), th.dim, false)
-            y = y + th.rowH
+            y = y + th.uiRowH
         end
     end
     app.ui.drawFooter("Enter edit  Esc done", "")

@@ -8,13 +8,15 @@ local M = {}
 -- px; pre: the monospace font for preformatted lines, whose cell width is
 -- cw. ui/uiCw: the system font (6x8), for everything else: the firmware
 -- draws the title bar, footer, tabs, list rows, toasts, text boxes and the
--- system menu in whatever font is current, laid out for 6x8.
+-- system menu in whatever font is current, laid out for 6x8. uiRowH: the
+-- pitch of system-font lines outside the page view (hints, notes, messages),
+-- the same whatever the reading font's rowH.
 function M.new(disp, spec)
     local rgb = disp.rgb
     return {
         fontName = spec.name, font = spec.font, bold = spec.bold, adv = spec.adv, boldAdv = spec.boldAdv,
         indent = spec.indent, pre = spec.pre,
-        ui = disp.FONT_6X8, uiCw = 6,
+        ui = disp.FONT_6X8, uiCw = 6, uiRowH = 13,
         cw = spec.pre.cw, rowH = spec.rowH, top = 21, bottom = 302, margin = 4,
         bg = disp.BLACK, fg = disp.WHITE, dim = rgb(120, 120, 120),
         h1 = rgb(255, 210, 80), h2 = rgb(120, 200, 255), h3 = rgb(160, 230, 160),

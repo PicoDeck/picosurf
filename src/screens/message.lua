@@ -14,7 +14,7 @@ function S.draw(app)
     local text = m.text or ""
     local s, e = wrap.wrap(text, theme.uiCols(th))
     for i = 1, math.min(#s, 16) do
-        d.drawText(th.margin, th.top + 20 + (i - 1) * th.rowH, text:sub(s[i], e[i]), th.error, false)
+        d.drawText(th.margin, th.top + 20 + (i - 1) * th.uiRowH, text:sub(s[i], e[i]), th.error, false)
     end
     app.ui.drawFooter(m.retry and "Enter retry  Esc back" or "Esc back", "")
 end
