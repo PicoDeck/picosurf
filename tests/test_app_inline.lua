@@ -432,6 +432,22 @@ return {
         T.eq(app.page.ps.top, top); T.eq(app.page.L.line[top], line)
         T.eq(boxRows(app, 2), 10)
     end,
+    back_after_switching_to_links_keeps_the_line_at_the_top = function()
+        local app, F = boot({ images = "inline" })
+        go(app, F, "pics.test/")
+        steps(app, 3)
+        app.page.ps:scroll(30); app.dirty = true; steps(app, 4)
+        T.eq(app.page.L.count, 81, "two boxes")
+        local line = app.page.L.line[app.page.ps.top]
+        go(app, F, "b.test/")
+        toggleImages(app, F)
+        T.eq(F.config.images, "links")
+        F.press("esc"); steps(app, 1)
+        F.press("backspace"); steps(app, 1)
+        T.eq(app.page.url, "https://pics.test/")
+        T.eq(app.page.L.count, 65, "no boxes")
+        T.eq(app.page.L.line[app.page.ps.top], line, "the same line at the top")
+    end,
     a_font_change_keeps_the_boxes = function()
         local app, F = boot({ images = "inline" })
         go(app, F, "pics.test/")

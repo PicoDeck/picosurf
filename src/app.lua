@@ -309,9 +309,21 @@ function App:withMemoryRetry(fn)
     return nil, msg
 end
 
+-- The first row of source line `li` (or of the first line after it).
+local function firstRowOf(L, li)
+    local lo, hi = 1, L.count
+    while lo < hi do
+        local mid = (lo + hi) // 2
+        if L.line[mid] < li then lo = mid + 1 else hi = mid end
+    end
+    return lo
+end
+
 -- Parses and lays out a page. With Images set to Inline, a page restored by
 -- Back or Reload gets its boxes back, so the saved scroll position points at
--- the same content (inline images spec 5.6).
+-- the same content (inline images spec 5.6). With Images now Links, the
+-- saved rows counted boxes that are gone: the saved source line goes back
+-- to the top instead.
 function App:buildPage(finalUrl, mode, r, restore)
     local cols = theme.cols(self.theme)
     local boxes = self.cfg.images == "inline" and restore and copyBoxes(restore.boxes) or nil
@@ -325,19 +337,13 @@ function App:buildPage(finalUrl, mode, r, restore)
         title = r.title or gemtext.title(lines) or url.host(finalUrl), feedUrl = r.feedUrl, lines = lines, L = L,
     }
     page.ps = pagestate.new(L, theme.rows(self.theme))
-    if restore then page.ps:restore(restore.top, restore.sel) end
+    if restore then
+        local top = restore.top
+        if restore.boxes and not boxes and restore.line then top = firstRowOf(L, restore.line) end
+        page.ps:restore(top, restore.sel)
+    end
     if self.cfg.images == "inline" then page.inline = inline.new(boxes) end
     return page
-end
-
--- The first row of source line `li` (or of the first line after it).
-local function firstRowOf(L, li)
-    local lo, hi = 1, L.count
-    while lo < hi do
-        local mid = (lo + hi) // 2
-        if L.line[mid] < li then lo = mid + 1 else hi = mid end
-    end
-    return lo
 end
 
 -- After a font change: lay the current page out again for the new width,
@@ -552,7 +558,7 @@ function App:addMenuItems()
 end
 
 -- Opens a URL in the page view. opts: mode ("reader"|"full"|"feed"),
--- push (false replaces the current page instead of stacking it), restore ({top, sel}),
+-- push (false replaces the current page instead of stacking it), restore ({top, sel, boxes, line}),
 -- back (set by goBack: the Back entry is removed only when the load succeeds).
 function App:open(target, opts)
     opts = opts or {}
@@ -575,7 +581,7 @@ function App:pushBack()
     local p = self.page
     self.back[#self.back + 1] = {
         url = p.url, want = p.want, top = p.ps.top, sel = p.ps.sel, feedId = p.isFeedList and p.feedId or nil,
-        boxes = p.inline and copyBoxes(p.inline.boxes) or nil,
+        boxes = p.inline and copyBoxes(p.inline.boxes) or nil, line = p.L.line[p.ps.top],
     }
     while #self.back > App.MAX_BACK do table.remove(self.back, 1) end
 end
@@ -583,7 +589,7 @@ end
 function App:goBack()
     local e = self.back[#self.back]
     if not e then return self:goHome() end
-    local restore = { top = e.top, sel = e.sel, boxes = e.boxes }
+    local restore = { top = e.top, sel = e.sel, boxes = e.boxes, line = e.line }
     if e.feedId then
         -- A feed list needs no network and cannot fail, so its entry goes now.
         table.remove(self.back)
@@ -624,6 +630,7 @@ function App:reload()
     self:cacheDrop(p.url, p.want)
     self:open(p.url, { mode = p.want, push = false, restore = {
         top = p.ps.top, sel = p.ps.sel, boxes = p.inline and copyBoxes(p.inline.boxes) or nil,
+        line = p.L.line[p.ps.top],
     } })
 end
 
