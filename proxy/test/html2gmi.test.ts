@@ -160,6 +160,40 @@ describe("links and images", () => {
   });
 });
 
+describe("dated lists laid out by CSS", () => {
+  const list = (sep: string) =>
+    `<p class="article-list"><time>Sep 27 2026</time>${sep}<a href="/one">First post</a>${sep}<time>Sep 20 2026</time>${sep}<a href="/two">Second post</a></p>`;
+  const expected =
+    "Sep 27 2026 First post [1]\nSep 20 2026 Second post [2]\n=> https://example.com/one [1] First post\n=> https://example.com/two [2] Second post\n";
+
+  it("puts each repeated time + link on its own line (with whitespace)", () => {
+    expect(gmi(list("\n"))).toBe(expected);
+  });
+  it("does the same without whitespace between the elements", () => {
+    expect(gmi(list(""))).toBe(expected);
+  });
+  it("separates a time from a directly following element", () => {
+    expect(gmi("<p><time>Jan 1</time><span>One</span></p>")).toBe("Jan 1 One\n");
+  });
+  it("keeps punctuation after a time attached", () => {
+    expect(gmi("<p>Posted <time>Jan 1</time>, by me</p>")).toBe("Posted Jan 1, by me\n");
+  });
+  it("leaves a single inline time on one line", () => {
+    expect(gmi("<p>Posted <time>Jan 1</time> by me</p>")).toBe("Posted Jan 1 by me\n");
+  });
+  it("keeps <li><time>..</time> <span>..</span></li> as one item", () => {
+    expect(gmi("<ul><li><time>Jan 1</time> <span>Event</span></li></ul>")).toBe("* Jan 1 Event\n");
+  });
+  it("keeps table rows with a time per cell on one line", () => {
+    expect(gmi("<table><tr><td><time>Jan 1</time></td><td><time>Jan 2</time></td></tr></table>")).toBe("Jan 1 | Jan 2\n");
+  });
+  it("still splits at <br>, and keeps <dl> and block-level items as they were", () => {
+    expect(gmi("<p>a<br>b</p>")).toBe("a\nb\n");
+    expect(gmi("<dl><dt>Term</dt><dd>Meaning</dd></dl>")).toBe("Term\n\nMeaning\n");
+    expect(gmi("<ul><li><div>One</div><div>Two</div></li></ul>")).toBe("* One Two\n");
+  });
+});
+
 describe("pickFromSrcset", () => {
   it("prefers the width nearest the target", () => expect(pickFromSrcset("u.jpg 300w,v.jpg 700w")).toBe("v.jpg"));
   it("takes the 1x density candidate", () => expect(pickFromSrcset("a.jpg 1x,b.jpg 2x")).toBe("a.jpg"));
