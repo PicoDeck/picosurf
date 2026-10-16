@@ -359,10 +359,16 @@ function App:stepImages()
     local L = p.L
     local order = inline.order(L, ps)
     for _, u in ipairs(st:drops(L, order)) do st:drop(u) end
-    local k = st:nextDecode(L, order)
-    if k then
-        self:decodeInline(p, L.links[k].url)
-        st.wake = true
+    -- The budget is one decode per step (inline images spec 6).
+    if st.decodedOnArrival then
+        st.decodedOnArrival = nil -- this step's one decode was the arrival's
+        st.wake = true -- decode the next one next step
+    else
+        local k = st:nextDecode(L, order)
+        if k then
+            self:decodeInline(p, L.links[k].url)
+            st.wake = true
+        end
     end
     if st.inflight or st.retryAt then return end
     local fk, u = st:nextFetch(L, order)
@@ -403,6 +409,7 @@ function App:inlineArrived(p, req, r)
     st.byUrl[u].state = "ready"
     st:keepBytes(u, r.body)
     self:decodeInline(p, u)
+    st.decodedOnArrival = true
 end
 
 -- Decodes u's bytes and lays every image link to u out as a box of its

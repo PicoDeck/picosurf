@@ -265,4 +265,19 @@ return {
         T.eq(n, 1, "one toast")
         T.eq(boxRows(app, 1), 0); T.eq(boxRows(app, 2), 0)
     end,
+    one_decode_per_step = function()
+        local app, F = boot({ images = "inline" })
+        openHolding(app, F, "pics.test/")
+        -- Picture two waits with its bytes but no decoded picture, as after it left the window and came back.
+        local st, two = app.page.inline, "https://img.test/2.jpg"
+        st.byUrl[two] = { state = "ready" }
+        st:keepBytes(two, "JPEG:312x126")
+        F.holding = false
+        local before = #F.decoded
+        app:step() -- picture one arrives and is decoded
+        T.eq(#F.decoded, before + 1, "only the arrival's decode")
+        app:step()
+        T.eq(#F.decoded, before + 2, "picture two the step after")
+        T.eq(boxRows(app, 2), 10)
+    end,
 }
