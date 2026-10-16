@@ -24,7 +24,8 @@ it out (section 9).
 - App: type a URL, read the page, follow links, go back; bookmarks;
   history; feed subscriptions with unread tracking; images opened full
   screen on demand, or shown in the page (Settings → Images; see
-  `2026-10-16-picosurf-inline-images-design.md`).
+  `2026-10-16-picosurf-inline-images-design.md`); proportional reading fonts,
+  Sans and Serif (`2026-10-16-picosurf-proportional-fonts-design.md`).
 
 **Later (section 9):** native Gemini (needs a firmware call for TOFU), Gopher,
 Spartan, Nex and Finger, web search, saving pages for offline reading, OPML
@@ -330,30 +331,33 @@ Deployment:
 
 ### 6.3 Layout and drawing
 
-- **Fonts:** body `FONT_SCIENTIFICA` (6×12), headings
-  `FONT_SCIENTIFICA_BOLD`; rows 13 px apart. Optional large text:
-  `FONT_8X12`, with headings marked by colour only since 8×12 has no bold.
-  Columns and rows come from the font metrics and the measured header and
-  footer heights at runtime (about 52 × 22 with Scientifica). The Font setting
+- **Fonts:** four reading fonts, chosen in Settings (proportional fonts
+  design): Sans (X11 Adobe Helvetica 12 and its bold, 14 px rows, the
+  default), Serif (Utopia 10 and its bold, 13 px rows), Scientifica (6×12 and
+  its bold, 13 px rows) and 8×12 (13 px rows, headings marked by colour only).
+  Sans and Serif load from the app's `fonts/` folder; if that fails the app
+  uses Scientifica. Rows come from the font's row height and the header and
+  footer heights (20 rows with Sans, 21 otherwise). The Font setting
   is the reading font: it applies to page text only. Everything else (title
   bar, footer, tabs, lists, Settings, loading and error screens) uses the
   system font `FONT_6X8`, and each frame ends with it current, because the
   firmware draws toasts, text boxes and the system menu in the current font.
 - **Line styles:**
   - Headings use an accent colour, a different one per level.
-  - List items get a bullet with a hanging indent.
-  - Quotes get a two-column indent with a bar on the left.
+  - List items get a bullet with a hanging indent of the same width.
+  - Quotes get a 12 px indent (16 px with 8×12) with a bar on the left.
   - Links use a link colour; `[IMG]` links have their own colour.
   - Preformatted lines are cut at the right edge and continued on the next
     row after a dim `\`.
-- **Wrapping:** `layout.lua` wraps once per page load or font change, using
-  an injected wrap function (`ui.wrapText` on the device, a Lua version in
-  tests). Rows are stored as parallel integer arrays (source line, start
+- **Wrapping:** `layout.lua` wraps once per page load or font change, by
+  measured width: each character's advance is measured once when the font
+  loads, and headings use the bold font's advances. Preformatted lines stay
+  monospace (Scientifica under Sans and Serif) and are cut by column count. Rows are stored as parallel integer arrays (source line, start
   byte, end byte, style, link index), not copied strings.
 - **Drawing:** redraw only when state changes. The idle loop calls
   `input.update()` and sleeps about 16 ms.
 - **Inline pictures** (Images: Inline): an image link's rows become a box of
-  `ceil((h + 4) / 13)` rows, at most 10, once its picture arrives; pictures
+  `ceil((h + 4) / rowH)` rows (rowH: the font's row height), at most 10, once its picture arrives; pictures
   within a screen of the view load one at a time. See the inline images
   design (`2026-10-16-picosurf-inline-images-design.md`), sections 2 and 5.
 
@@ -398,7 +402,7 @@ Files live in `/data/net.picodeck.picosurf/`.
 
 | File | Contents | Cap |
 |---|---|---|
-| `config.json` (`picocalc.config`) | `proxy_url`, `token`, `font`, `images` | — |
+| `config.json` (`picocalc.config`) | `proxy_url`, `token`, `font` (`sans`, `serif`, `scientifica` or `8x12`), `images` | — |
 | `bookmarks.json` | `[{url, title}]`, newest first | 200 |
 | `history.json` | `[{url, title}]`, newest first, revisits move to the top | 100 |
 | `feeds/index.json` | `{next_id, feeds: [{id, url, title, fetched_at, unread}]}` | 50 feeds |
@@ -437,8 +441,8 @@ Files live in `/data/net.picodeck.picosurf/`.
 - **First run:** with no `proxy_url`, open Settings with a short explanation
   that points to the repo's proxy setup section.
 - **Fields:** Proxy URL and Token use `ui.textInput`, so each is at most 128
-  characters. Font switches between Scientifica and 8×12. Images switches
-  between Links (the default) and Inline.
+  characters. Font steps through Scientifica, 8×12, Sans and Serif (Sans by
+  default). Images switches between Links (the default) and Inline.
 - **Test connection:** calls `/v1/ping` and shows the result.
 - **Plain `http://` proxy URLs** are allowed for local development, with a
   warning that the token is sent unencrypted.
@@ -457,6 +461,7 @@ Files live in `/data/net.picodeck.picosurf/`.
 | Image decode fails | error screen with the image URL |
 | Inline picture fails (proxy error, timeout, decode) | the line stays an `[IMG]` link; Reload tries again |
 | Inline picture larger than its box (a proxy without `fit`) | stays a link; toast `Inline images need a newer proxy`; no more inline pictures are fetched until a setting changes |
+| Reading font file missing or rejected | Scientifica; toast `Font unavailable - using Scientifica`; the setting keeps its value |
 | Corrupt storage file | 6.6 |
 
 ## 7. Testing
@@ -514,6 +519,7 @@ This default list can be swapped for the author's own reading:
   - subscribing from a homepage; unread counts going down as articles are opened
   - an image opening full screen
   - an inline picture drawn in its box (Images: Inline)
+  - the default Sans font loading and drawing page text
   - proxy error screens (401, 502)
 - **Hardware pass** (manual) against the deployed Worker:
   - Open every page and feed on the smoke list.

@@ -129,6 +129,22 @@ def test_inline_picture(picosurf):
     no_lua_errors(sim)
 
 
+def test_default_font_is_sans(picosurf):
+    sim, proxy, data = picosurf()
+    seed_history(data, "https://a.test/")
+    proxy.add("https://a.test/", A, title="A")
+    wait(sim, r"picosurf: font sans", start_app(sim))
+    wait(sim, r"picosurf: loaded https://a\.test/", open_first_history(sim))
+    time.sleep(0.5)  # the frame drawn after the log line
+    img = sim.screenshot_pil().convert("RGB")
+    # Row 3 ("See B [1].") on 14 px rows starts at y 22 + 2 * 14 = 50.
+    lit = sum(1 for x in range(4, 120) for y in range(50, 63) if sum(img.getpixel((x, y))) > 300)
+    assert lit > 20, lit
+    errors = [l["text"] for l in sim.get_log_lines() if "/fonts/" in l.get("text", "")]
+    assert not errors, errors
+    no_lua_errors(sim)
+
+
 def test_subscribe_and_read(picosurf):
     sim, proxy, data = picosurf()
     seed_history(data, "https://blog.test/")

@@ -112,7 +112,7 @@ either font.
 
 ```lua
 st = {
-  boxes = { [k] = rows },  -- image links laid out as boxes (kept across Back, Reload, font)
+  boxes = { [k] = h },     -- picture heights in px of image links laid out as boxes (kept across Back, Reload, font)
   byUrl = { [url] = {      -- one entry per image URL; two links to one URL share it
     state = "loading" | "ready" | "failed",
     bytes = jpeg or nil,   -- compressed, in the LRU below
@@ -126,7 +126,7 @@ st = {
 ```
 
 - `inline.new(boxes)`
-- `inline.rows(h)`: `ceil((h + 4) / 13)`
+- `inline.rows(h, rowH)`: `ceil((h + 4) / rowH)`, rowH being the font's row height (proportional fonts design 5.3)
 - `inline.order(L, ps)`: indices of the image links that overlap the window,
   in the loading order of section 2. The window is rows
   `top - visible .. lastVisible + visible`.
@@ -164,20 +164,20 @@ It is applied in `pump`. It is ignored if `page` is no longer `app.page`,
      toast `Inline images need a newer proxy`. No more pictures are fetched
      until a setting changes (say, the proxy URL), when the toast can show
      again.
-  3. Otherwise set `w, h` and `rows = inline.rows(h)`. The pixels live
+  3. Otherwise set `w, h` and `rows = inline.rows(h, rowH)`. The pixels live
      outside the Lua heap, freed only by the picture's finaliser, so the
      collector is told about them as if Lua had allocated them:
      `collectgarbage("step", w * h * 2 // 1024)`.
   4. For each image link with this URL whose rows differ, call
      `delta = layout.setBox(L, k, rows)` and then
-     `ps:shift(L.links[k].first, delta)`, and set `boxes[k] = rows`.
+     `ps:shift(L.links[k].first, delta)`, and set `boxes[k] = h`.
 - **`clock`:** remove the entry and set `retryAt` to 3 s from now.
 - **Anything else** (a proxy error status, a timeout, a response that isn't an
   image): the entry becomes `failed` and the result is logged.
 
 ### 5.4 Layout and selection
 
-- **`build` with `boxes`:** link `k` gets `boxes[k]` rows of style `BOX`.
+- **`build` with `boxes`:** link `k` gets `boxRows(boxes[k])` rows of style `BOX`.
   Each row has the link's source line, `s = 1, e = 0`, `link = k` and
   `cont = false`. Entries for links that aren't image links are ignored.
 - **`setBox`** makes the same rows as `build` would. In place, it:
