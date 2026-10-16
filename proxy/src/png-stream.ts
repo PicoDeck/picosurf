@@ -35,8 +35,18 @@ interface Header {
 interface Png extends Header {
   palette: Uint8Array | null;
   trns: Uint8Array | null;
-  idat: Uint8Array[];
+  /** Where the first IDAT chunk starts. */
+  idatAt: number;
 }
+
+const IDAT = 0x49444154;
+const IEND = 0x49454e44;
+
+/**
+ * Inflate input below this size is gathered into one write, so a PNG cut into
+ * tiny IDAT chunks (valid, if odd) costs a few writes, not one per chunk.
+ */
+const MIN_WRITE = 64 * 1024;
 
 function readHeader(b: Uint8Array): Header | null {
   if (b.length < 33 || SIGNATURE.some((v, i) => b[i] !== v)) return null;
@@ -73,7 +83,7 @@ export async function streamPng(bytes: Uint8Array, max = MAX_SIDE): Promise<Rgba
   const png = parse(bytes);
   const scaler = new BoxScaler(png.width, png.height, fitWithin(png.width, png.height, max));
   const rows = new Rows(png, scaler);
-  await inflate(png.idat, (chunk) => {
+  await inflate(idatData(bytes, png.idatAt), (chunk) => {
     rows.push(chunk);
     return rows.done;
   });
@@ -86,7 +96,7 @@ function parse(b: Uint8Array): Png {
   if (!h) throw new Error("Not a PNG");
   if (!streamable(h)) throw new Error("PNG format is not streamable");
   if (h.width === 0 || h.height === 0) throw new Error("PNG has a zero dimension");
-  const png: Png = { ...h, palette: null, trns: null, idat: [] };
+  const png: Png = { ...h, palette: null, trns: null, idatAt: -1 };
   let ended = false;
   for (let p = 8; !ended; ) {
     if (p + 12 > b.length) throw new Error("PNG is truncated");
@@ -96,31 +106,55 @@ function parse(b: Uint8Array): Png {
     const type = name(b, p + 4);
     // Like libpng: a bad CRC on a critical chunk (upper-case first letter) is fatal; on others it is ignored.
     if ((b[p + 4] & 0x20) === 0 && crc32(b.subarray(p + 4, end - 4)) !== u32(b, end - 4)) throw new Error(`PNG ${type} chunk is corrupt`);
-    const data = b.subarray(p + 8, end - 4);
     if (type === "PLTE") {
       if (length === 0 || length % 3 !== 0 || length > 768) throw new Error("PNG palette is malformed");
-      png.palette = data;
+      png.palette = b.subarray(p + 8, end - 4);
     } else if (type === "tRNS") {
-      png.trns = data;
+      png.trns = b.subarray(p + 8, end - 4);
     } else if (type === "IDAT") {
-      png.idat.push(data);
+      if (png.idatAt < 0) png.idatAt = p;
     } else if (type === "IEND") {
       ended = true;
     }
     p = end;
   }
-  if (png.idat.length === 0) throw new Error("PNG has no image data");
+  if (png.idatAt < 0) throw new Error("PNG has no image data");
   if (h.colorType === 3 && !png.palette) throw new Error("PNG has no palette");
   return png;
 }
 
+/** The data of each IDAT chunk from `at` to IEND, one at a time; parse() has checked the chunks. */
+function* idatData(b: Uint8Array, at: number): Generator<Uint8Array> {
+  for (let p = at; ; ) {
+    const length = u32(b, p);
+    const type = u32(b, p + 4);
+    if (type === IEND) return;
+    if (type === IDAT) yield b.subarray(p + 8, p + 8 + length);
+    p += 12 + length;
+  }
+}
+
 /** Feeds the inflated IDAT stream to `onData` until it returns true or the stream ends. */
-async function inflate(parts: Uint8Array[], onData: (chunk: Uint8Array) => boolean): Promise<void> {
+async function inflate(parts: Iterable<Uint8Array>, onData: (chunk: Uint8Array) => boolean): Promise<void> {
   const stream = new DecompressionStream("deflate");
   const writer = stream.writable.getWriter();
   const writing = (async () => {
-    // The parts are views of the fetched body, never of a SharedArrayBuffer.
-    for (const part of parts) await writer.write(part as Uint8Array<ArrayBuffer>);
+    let stage = new Uint8Array(MIN_WRITE);
+    let staged = 0;
+    for (const part of parts) {
+      if (staged > 0 && staged + part.length > MIN_WRITE) {
+        await writer.write(stage.subarray(0, staged));
+        stage = new Uint8Array(MIN_WRITE); // the stream may still hold the last one
+        staged = 0;
+      }
+      // Parts are views of the fetched body, never of a SharedArrayBuffer.
+      if (part.length >= MIN_WRITE) await writer.write(part as Uint8Array<ArrayBuffer>);
+      else {
+        stage.set(part, staged);
+        staged += part.length;
+      }
+    }
+    if (staged > 0) await writer.write(stage.subarray(0, staged));
     await writer.close();
   })();
   // A write fails only when the stream has failed or been cancelled; the reader reports that.

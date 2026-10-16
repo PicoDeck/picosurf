@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
 import { fitWithin } from "../src/img";
 import { PNG_STREAM_MAX_WIDTH, canStreamPng, streamPng } from "../src/png-stream";
@@ -111,6 +111,18 @@ describe("streamPng", () => {
   it("takes image data split into one-byte IDAT chunks", async () => {
     const p = raw(64, 48, 6);
     expect(await streamPng(encodePng(p, 1))).toEqual(await streamPng(encodePng(p)));
+  });
+
+  it("gathers tiny IDAT chunks into a few large writes", async () => {
+    const p = raw(400, 300, 2);
+    const png = encodePng(p, 1); // about 100,000 one-byte IDAT chunks
+    const writes = vi.spyOn(WritableStreamDefaultWriter.prototype, "write");
+    try {
+      expect(await streamPng(png)).toEqual(await streamPng(encodePng(p)));
+      expect(writes.mock.calls.length).toBeLessThan(10);
+    } finally {
+      writes.mockRestore();
+    }
   });
 
   it("decodes a 1x1 image", async () => {

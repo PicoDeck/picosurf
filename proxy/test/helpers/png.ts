@@ -37,6 +37,10 @@ export function ihdr(width: number, height: number, colorType: number, bitDepth 
 }
 
 export function concat(...parts: Uint8Array[]): Uint8Array {
+  return concatAll(parts);
+}
+
+function concatAll(parts: Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let at = 0;
   for (const p of parts) {
@@ -81,14 +85,12 @@ export function encodePng(p: RawPng, idatSize = 8192): Uint8Array {
   const z = imageData(p);
   const idats: Uint8Array[] = [];
   for (let i = 0; i < z.length; i += idatSize) idats.push(chunk("IDAT", z.subarray(i, i + idatSize)));
-  return concat(
+  return concatAll([
     SIGNATURE,
     ihdr(p.width, p.height, p.colorType),
     ...(p.palette ? [chunk("PLTE", p.palette)] : []),
     ...(p.trns ? [chunk("tRNS", p.trns)] : []),
-    ...idats,
-    chunk("IEND"),
-  );
+  ].concat(idats, [chunk("IEND")]));
 }
 
 /** Deterministic noise in [0, 1). */
