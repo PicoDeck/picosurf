@@ -29,6 +29,19 @@ local function sparse()
     return pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), 40), 10)
 end
 
+-- 40 lines: pictures on rows 3, 14 and 38 (links 1, 2, 5), links on rows 20 and 25 (3, 4).
+local function pictures()
+    local parts = {}
+    for i = 1, 40 do parts[i] = "line " .. i end
+    parts[3] = "=> https://a.test/p.jpg [IMG] picture"
+    parts[14] = "=> https://a.test/q.jpg [IMG] picture"
+    parts[20] = "=> https://a.test/1 one"
+    parts[25] = "=> https://a.test/2 two"
+    parts[38] = "=> https://a.test/r.jpg [IMG] picture"
+    local L = layout.build(g.parse(table.concat(parts, "\n")), 40)
+    return pagestate.new(L, 10), L
+end
+
 return {
     arrows_walk_a_list_link_by_link = function()
         local ps = list()
@@ -162,5 +175,40 @@ return {
         while ps:page(1) do end
         T.eq(ps:percent(), 100)
         T.eq(ps:lastVisible(), 5000)
+    end,
+    shift_keeps_the_view_when_rows_change_above_it = function()
+        local ps, L = pictures()
+        ps:scroll(14)
+        T.eq(ps.top, 15); T.eq(ps.sel, 3)
+        ps:shift(L.links[1].first, layout.setBox(L, 1, 6))
+        T.eq(ps.top, 20); T.eq(L.line[ps.top], 15, "the same line is at the top")
+        T.eq(ps.sel, 3)
+    end,
+    shift_on_or_below_the_top_leaves_the_view = function()
+        local ps, L = pictures()
+        ps:shift(L.links[1].first, layout.setBox(L, 1, 6))
+        T.eq(ps.top, 1); T.eq(ps.sel, 1)
+    end,
+    shift_keeps_a_growing_selected_picture_selected = function() -- Review Focus 3
+        local ps, L = pictures()
+        T.eq(ps.sel, 1)
+        ps:shift(L.links[1].first, layout.setBox(L, 1, 10)) -- rows 3-12, past the bottom (row 10)
+        T.eq(ps.top, 1, "the view doesn't move"); T.eq(ps.sel, 1, "still selected")
+    end,
+    shift_reselects_when_the_selection_is_pushed_off = function()
+        local ps, L = pictures()
+        ps:scroll(11)
+        ps:nextLink(1)
+        T.eq(ps.top, 12); T.eq(ps.sel, 3)
+        ps:shift(L.links[2].first, layout.setBox(L, 2, 10)) -- link 3 moves to row 29
+        T.eq(ps.top, 12); T.eq(ps.sel, 2, "the topmost visible link, as after scrolling")
+    end,
+    shift_clamps_the_view_to_the_new_end = function()
+        local ps, L = pictures()
+        ps:shift(L.links[5].first, layout.setBox(L, 5, 5)) -- 44 rows
+        ps:scroll(100)
+        T.eq(ps.top, 35); T.eq(ps.sel, 5)
+        ps:shift(L.links[5].first, layout.setBox(L, 5, 1)) -- 40 rows again
+        T.eq(ps.top, 31, "clamped to the new last screen"); T.eq(ps.sel, 5)
     end,
 }

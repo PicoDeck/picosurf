@@ -62,6 +62,16 @@ function M:page(dir)
     return self:scroll(dir * math.max(1, self.visible - 1))
 end
 
+-- After `delta` rows were added (removed, when negative) at `row`, an inline
+-- picture's box growing say: when they were above the screen, the view moves
+-- by as many rows, so the rows on screen stay the same (inline images spec
+-- 5.4). Then a link is kept selected, as when scrolling.
+function M:shift(row, delta)
+    if row < self.top then self.top = self.top + delta end
+    self.top = math.max(1, math.min(self:maxTop(), self.top))
+    keepSelectionVisible(self)
+end
+
 -- How far past the screen's edge Up/Down look for the next link, in rows.
 M.NEAR = 3
 
