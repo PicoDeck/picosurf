@@ -46,6 +46,7 @@ function App:loadConfig()
         images = c.get("images") == "inline" and "inline" or "links",
     }
     self.theme = theme.new(self.disp, self.cfg.font)
+    self.oldProxyWarned = nil -- a changed setting, say a newer proxy: pictures are tried again
     self:cancelRefresh() -- before closeAll, which would fail its requests
     if self.pool then self.pool:closeAll() end
     self.pool, self.base, self.baseErr = nil, nil, nil
@@ -374,7 +375,9 @@ function App:relayout()
 end
 
 -- Whether a picture can be fetched now: a proxy, WiFi, and for TLS a set clock.
+-- Not after a proxy older than fit was found, until the settings change.
 function App:canFetchImages()
+    if self.oldProxyWarned then return false end
     if not self.pool or self.pc.network.getStatus() ~= 1 then return false end
     return not (self.base.tls and not self.sys.getClock().synced)
 end

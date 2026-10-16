@@ -38,7 +38,8 @@ function S.draw(app)
         notes[#notes + 1] = "Warning: http:// sends the token unencrypted."
     end
     if app.baseErr then notes[#notes + 1] = app.baseErr end
-    local cols, y = theme.uiCols(th), 110
+    -- The notes start 16 px below the last item.
+    local cols, y = theme.uiCols(th), 30 + #ITEMS * 16 + 16
     for _, n in ipairs(notes) do
         local s, e = wrap.wrap(n, cols)
         for k = 1, #s do

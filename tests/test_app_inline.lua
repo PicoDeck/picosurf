@@ -307,14 +307,21 @@ return {
         local app, F = boot({ images = "inline" })
         go(app, F, "old.test/")
         steps(app, 3)
-        T.eq(#pictureRequests(F), 2)
         T.ok(F.hasLog("picosurf: inline failed https://img.test/big1.jpg larger than 312x126"))
+        T.eq(#pictureRequests(F), 1, "after the toast, no more pictures are fetched")
+        F.ms = F.ms + 3000
+        steps(app, 3)
+        T.eq(#pictureRequests(F), 1, "nor after the retry time")
         local n = 0
         for _, t in ipairs(F.toasts) do
             if t == "Inline images need a newer proxy" then n = n + 1 end
         end
         T.eq(n, 1, "one toast")
         T.eq(boxRows(app, 1), 0); T.eq(boxRows(app, 2), 0)
+        app:saveConfig("proxy_url", "https://p.test") -- say, a newer proxy
+        F.ms = F.ms + 3000
+        steps(app, 3)
+        T.eq(#pictureRequests(F), 2, "a changed setting lets it try again")
     end,
     one_decode_per_step = function()
         local app, F = boot({ images = "inline" })
