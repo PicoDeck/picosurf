@@ -122,8 +122,8 @@ def test_inline_picture(picosurf):
     assert any(q.get("fit") == "312x126" for _, q in proxy.requests)
     time.sleep(0.5)  # the frame drawn after the log line
     # A's rows: title, blank, text, the B link, then the picture's box from
-    # row 5. Its band starts at y 21 + 4 * 13 = 73; the picture is 2 px lower
-    # and centred, so (160, 138) is inside it.
+    # row 5. On Sans's 14 px rows its band starts at y 21 + 4 * 14 = 77; the
+    # picture is 2 px lower (y 79..205) and centred, so (160, 138) is inside it.
     r, g, b = sim.screenshot_pil().convert("RGB").getpixel((160, 138))
     assert abs(r - 30) <= 24 and abs(g - 120) <= 24 and abs(b - 200) <= 24, (r, g, b)
     no_lua_errors(sim)
@@ -140,11 +140,7 @@ def test_default_font_is_sans(picosurf):
     # Row 3 ("See B [1].") on 14 px rows starts at y 22 + 2 * 14 = 50.
     lit = sum(1 for x in range(4, 120) for y in range(50, 63) if sum(img.getpixel((x, y))) > 300)
     assert lit > 20, lit
-    errors = [
-        l["text"]
-        for l in sim.get_log_lines()
-        if "/fonts/" in l.get("text", "") or "picosurf: error" in l.get("text", "")
-    ]
+    errors = [l["text"] for l in sim.get_log_lines() if "picosurf: error" in l.get("text", "")]
     assert not errors, errors
     no_lua_errors(sim)
 

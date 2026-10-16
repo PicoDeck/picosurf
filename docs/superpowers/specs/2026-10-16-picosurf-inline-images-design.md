@@ -236,7 +236,7 @@ It is applied in `pump`. It is ignored if `page` is no longer `app.page`,
 
 | What | Bound |
 |---|---|
-| Decoded pictures | Only those overlapping the window, which is three screens of rows (63). A picture costs `w × h × 2` bytes, at most 312 × 126 × 2 = 79 KB. A picture is never larger than its box (`rows × rowH` px tall, 312 px wide), so the boxes inside the window hold at most 63 × 14 × 312 × 2 bytes ≈ 0.5 MB of pictures. The two boxes that can cross the window's edges add at most 160 KB, so 0.67 MB in all. |
+| Decoded pictures | Only those overlapping the window, which is three screens of rows: 63 rows of 13 px, or 60 of 14 px (Sans). A picture costs `w × h × 2` bytes, at most 312 × 126 × 2 = 79 KB. A picture is never larger than its box (`rows × rowH` px tall, 312 px wide), so the boxes inside the window hold at most 63 × 13 × 312 × 2 or 60 × 14 × 312 × 2 bytes of pictures, about 0.5 MB either way. The two boxes that can cross the window's edges add at most 160 KB, so about 0.67 MB in all. |
 | Compressed bytes | 512 KB per page, least recently used dropped. That is dozens of pictures of 312×126 at quality 75 (to be measured: section 8). |
 | Requests | One image request at a time, over the proxy keep-alive connection pages already use. None while a page is loading, because the loading screen replaces the page screen and its `leave` cancels the request. |
 | Decoding | At most one picture per step, each at most 312×126. |

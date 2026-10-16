@@ -80,6 +80,8 @@ src/screens/home.lua     Feeds / Bookmarks / History tabs
 src/screens/page.lua     page, loading and error views
 src/screens/image.lua    full-screen image
 src/screens/settings.lua proxy URL, token, font, test connection
+fonts/                   Sans and Serif reading fonts (.pfn) and their LICENSE
+tools/build-fonts.py     rebuilds fonts/ from the X.Org BDF tarballs
 tests/                   host Lua and lua32 unit tests; pytest simulator E2E
 proxy/                   TypeScript proxy (5.9); left out of the release ZIP
 .github/workflows/       CI (proxy tests, Lua tests), release ZIP
@@ -534,9 +536,9 @@ This default list can be swapped for the author's own reading:
 ## 8. Release and distribution
 
 - A GitHub Actions workflow runs the proxy tests and Lua tests on every push.
-- A tag builds `picosurf-<version>.zip` from `app.json`, `main.lua`, `src/`
-  and the icon (no `proxy/`, no `tests/`) and attaches it to a Release. That
-  meets the store's one-ZIP rule.
+- A tag builds `picosurf-<version>.zip` from `app.json`, `main.lua`, `src/`,
+  `fonts/` and the icon (no `proxy/`, no `tests/`) and attaches it to a
+  Release. That meets the store's one-ZIP rule.
 - The proxy Docker image is built from `proxy/Dockerfile`; publishing it is
   outside v1.
 
