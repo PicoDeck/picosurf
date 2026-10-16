@@ -6,3 +6,16 @@ workers_dev = true
 
 [observability]
 enabled = true
+
+# PicoDeck's own instance at proxy.picodeck.net: `npx wrangler deploy --env picodeck`
+# (its token: `npx wrangler secret put PROXY_TOKEN --env picodeck`). A plain
+# `wrangler deploy` ignores this and publishes to your workers.dev subdomain.
+[env.picodeck]
+workers_dev = false
+routes = [{ pattern = "proxy.picodeck.net", custom_domain = true }]
+# Reader mode on big pages and image resizing need more than the free plan's
+# 10 ms; Workers Paid allows up to 300000.
+limits = { cpu_ms = 30000 }
+
+[env.picodeck.observability]
+enabled = true
