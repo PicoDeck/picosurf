@@ -2,7 +2,9 @@
 // to the whole page (spec 5.5). Output is not ASCII-folded; the handler does that.
 
 import { Readability } from "@mozilla/readability";
+import { Parser } from "htmlparser2";
 import { parseHTML } from "linkedom";
+import { ProxyError } from "./errors";
 import { findFeedLink } from "./feed";
 import { escapeLine, toGemtext } from "./html2gmi";
 import { collapse, hostPath } from "./text";
@@ -25,11 +27,39 @@ export const LONG_ARTICLE_CHARS = 3000;
 export const MIN_COVERAGE = 0.25;
 /** Pages with elements nested deeper than this go straight to the full page. */
 export const MAX_READER_DEPTH = 300;
+/** Pages with more elements than this are refused (413) before linkedom builds a DOM for them (128 MB Worker isolate). */
+export const MAX_ELEMENTS = 200_000;
 const JUNK = "script, style, noscript, svg, template, iframe, canvas, video, audio, [hidden], [aria-hidden=true]";
 
 const parse = (html: string) => parseHTML(html).document as unknown as Document;
 
+const TOO_MANY = new Error("too many elements");
+
+/**
+ * Counts the elements linkedom would build, with the same parser and options, and throws a 413 past MAX_ELEMENTS.
+ * Costs a fraction of building the DOM and stops at the cap.
+ */
+export function assertElementCount(html: string): void {
+  let count = 0;
+  const parser = new Parser(
+    {
+      onopentag() {
+        if (++count > MAX_ELEMENTS) throw TOO_MANY;
+      },
+    },
+    { lowerCaseAttributeNames: false, decodeEntities: true, xmlMode: false }, // as linkedom's parseFromString
+  );
+  try {
+    parser.write(html);
+    parser.end();
+  } catch (e) {
+    if (e !== TOO_MANY) throw e;
+    throw new ProxyError(413, `Page is too large to read (over ${MAX_ELEMENTS.toLocaleString("en-US")} elements)`);
+  }
+}
+
 export function renderPage(html: string, finalUrl: string, want: PageMode): Page {
+  assertElementCount(html);
   const doc = parse(html);
   const base = baseOf(doc, finalUrl);
   const feedUrl = findFeedLink(doc, base);
@@ -86,6 +116,7 @@ function coverageOf(chars: number, root: Element | null): number {
 }
 
 export function discoverFeed(html: string, finalUrl: string): string | null {
+  assertElementCount(html);
   const doc = parse(html);
   return findFeedLink(doc, baseOf(doc, finalUrl));
 }

@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { LONG_ARTICLE_CHARS, MIN_COVERAGE, type Page, discoverFeed, prepareForReader, renderPage } from "../src/page";
+import { ProxyError } from "../src/errors";
+import { LONG_ARTICLE_CHARS, MAX_ELEMENTS, MIN_COVERAGE, type Page, discoverFeed, prepareForReader, renderPage } from "../src/page";
 import { articleHtml } from "./helpers/pages";
 import { HOSTILE_BYTES, msToRun } from "./helpers/timing";
 
@@ -176,6 +177,41 @@ describe("hostile input (about 1 MB in under 1 s)", () => {
   it("discoverFeed on 100,000 nested divs is fast", () => {
     const html = `<html><head><link rel="alternate" type="application/rss+xml" href="/f.xml"></head><body>${"<div>".repeat(100_000)}</body></html>`;
     expect(msToRun(() => expect(discoverFeed(html, URL_)).toBe("https://example.com/f.xml"))).toBeLessThan(3000);
+  });
+});
+
+describe("element cap (413 before the DOM is built)", { retry: 2 }, () => {
+  const MESSAGE = "Page is too large to read (over 200,000 elements)";
+  const wrap = (body: string) => `<html><head><title>E</title></head><body>${body}</body></html>`;
+  const refused = (run: () => unknown) => {
+    let err: unknown;
+    try {
+      run();
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ProxyError);
+    expect((err as ProxyError).status).toBe(413);
+    expect((err as ProxyError).message).toBe(MESSAGE);
+  };
+
+  it("is 200,000", () => expect(MAX_ELEMENTS).toBe(200_000));
+
+  it("refuses 1,000,000 nested divs quickly, in renderPage and discoverFeed", () => {
+    const html = wrap("<div>".repeat(1_000_000));
+    expect(msToRun(() => refused(() => renderPage(html, URL_, "reader")))).toBeLessThan(2000);
+    expect(msToRun(() => refused(() => discoverFeed(html, URL_)))).toBeLessThan(2000);
+  });
+
+  it("refuses 200,001 flat paragraphs", () => {
+    // html, head, title, body and 199,997 <p> make exactly 200,001 elements
+    refused(() => renderPage(wrap("<p>x".repeat(199_997)), URL_, "full"));
+  });
+
+  it("accepts exactly 200,000 elements", () => {
+    const page = renderPage(wrap("<p>x".repeat(199_996)), URL_, "full"); // 4 + 199,996
+    expect(page.gemtext).toContain("x");
+    expect(discoverFeed(wrap("<p>x".repeat(199_996)), URL_)).toBeNull();
   });
 });
 

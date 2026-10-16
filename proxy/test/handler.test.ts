@@ -26,6 +26,16 @@ const get = (url: string, d: Deps, as?: string) =>
   call(`/v1/get?url=${encodeURIComponent(url)}${as ? `&as=${as}` : ""}`, d);
 const ASCII = /^[\t\n\x20-\x7e]*$/;
 
+describe("element cap", () => {
+  it("answers 413 text/plain for a page with over 200,000 elements", async () => {
+    const d = deps({ "https://example.com/": html(`<html><body>${"<p>x".repeat(200_001)}</body></html>`) });
+    const res = await get("https://example.com/", d.deps);
+    expect(res.status).toBe(413);
+    expect(res.headers.get("Content-Type")).toContain("text/plain");
+    expect(await res.text()).toBe("Page is too large to read (over 200,000 elements)\n");
+  });
+});
+
 describe("routing and auth", () => {
   it("answers ping with the token", async () => {
     const res = await call("/v1/ping", deps().deps);
