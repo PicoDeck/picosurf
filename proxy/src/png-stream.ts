@@ -43,10 +43,13 @@ const IDAT = 0x49444154;
 const IEND = 0x49454e44;
 
 /**
- * Inflate input below this size is gathered into one write, so a PNG cut into
- * tiny IDAT chunks (valid, if odd) costs a few writes, not one per chunk.
+ * IDAT chunks under SMALL_IDAT bytes are copied together into writes of up to
+ * GATHERED bytes, so a PNG cut into tiny chunks (valid, if odd) costs a few
+ * writes, not one per chunk. Larger ones, such as libpng's usual 8 KiB, go to
+ * the inflater as they are.
  */
-const MIN_WRITE = 64 * 1024;
+const SMALL_IDAT = 4 * 1024;
+const GATHERED = 64 * 1024;
 
 function readHeader(b: Uint8Array): Header | null {
   if (b.length < 33 || SIGNATURE.some((v, i) => b[i] !== v)) return null;
@@ -139,22 +142,27 @@ async function inflate(parts: Iterable<Uint8Array>, onData: (chunk: Uint8Array) 
   const stream = new DecompressionStream("deflate");
   const writer = stream.writable.getWriter();
   const writing = (async () => {
-    let stage = new Uint8Array(MIN_WRITE);
-    let staged = 0;
+    let gathered = new Uint8Array(GATHERED);
+    let n = 0;
+    const flush = async () => {
+      if (n === 0) return;
+      const full = gathered.subarray(0, n);
+      gathered = new Uint8Array(GATHERED); // the stream may still hold the last one
+      n = 0;
+      await writer.write(full);
+    };
     for (const part of parts) {
-      if (staged > 0 && staged + part.length > MIN_WRITE) {
-        await writer.write(stage.subarray(0, staged));
-        stage = new Uint8Array(MIN_WRITE); // the stream may still hold the last one
-        staged = 0;
-      }
-      // Parts are views of the fetched body, never of a SharedArrayBuffer.
-      if (part.length >= MIN_WRITE) await writer.write(part as Uint8Array<ArrayBuffer>);
-      else {
-        stage.set(part, staged);
-        staged += part.length;
+      if (part.length >= SMALL_IDAT) {
+        await flush();
+        // Parts are views of the fetched body, never of a SharedArrayBuffer.
+        await writer.write(part as Uint8Array<ArrayBuffer>);
+      } else {
+        if (n + part.length > GATHERED) await flush();
+        gathered.set(part, n);
+        n += part.length;
       }
     }
-    if (staged > 0) await writer.write(stage.subarray(0, staged));
+    await flush();
     await writer.close();
   })();
   // A write fails only when the stream has failed or been cancelled; the reader reports that.

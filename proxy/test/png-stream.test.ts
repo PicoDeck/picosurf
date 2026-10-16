@@ -115,11 +115,24 @@ describe("streamPng", () => {
 
   it("gathers tiny IDAT chunks into a few large writes", async () => {
     const p = raw(400, 300, 2);
-    const png = encodePng(p, 1); // about 100,000 one-byte IDAT chunks
+    const png = encodePng(p, 1); // about 250,000 one-byte IDAT chunks
+    const expected = await streamPng(encodePng(p));
     const writes = vi.spyOn(WritableStreamDefaultWriter.prototype, "write");
     try {
-      expect(await streamPng(png)).toEqual(await streamPng(encodePng(p)));
+      expect(await streamPng(png)).toEqual(expected);
       expect(writes.mock.calls.length).toBeLessThan(10);
+    } finally {
+      writes.mockRestore();
+    }
+  });
+
+  it("writes ordinary 8 KiB IDAT chunks to the inflater as they are, without copying", async () => {
+    const png = encodePng(raw(400, 300, 2), 8192);
+    const writes = vi.spyOn(WritableStreamDefaultWriter.prototype, "write");
+    try {
+      await streamPng(png);
+      expect(writes.mock.calls.length).toBeGreaterThan(5);
+      for (const [chunk] of writes.mock.calls) expect((chunk as Uint8Array).buffer).toBe(png.buffer);
     } finally {
       writes.mockRestore();
     }
