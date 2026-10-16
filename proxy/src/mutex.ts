@@ -3,8 +3,9 @@
  *
  * A job still running after `maxWaitMs` stops holding up the next one. On
  * Workers, the promises of a request whose client has gone away can be
- * dropped, so a job may never finish; it must not stall every later job in
- * the isolate.
+ * dropped, so a job (or a caller still waiting its turn) may never release
+ * the lock; it must not stall every later job in the isolate. The job after
+ * it waits out maxWaitMs once.
  */
 export class Mutex {
   private last: Promise<void> = Promise.resolve();

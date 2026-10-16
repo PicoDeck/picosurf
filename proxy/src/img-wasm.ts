@@ -1,6 +1,7 @@
-// The Workers resizer: jSquash WASM codecs to decode and encode, omggif for
-// GIF, a streaming decoder for most PNGs (png-stream.ts), and a box filter in
-// JS to scale down (boxscale.ts) (spec 5.8).
+// The Workers resizer (spec 5.8): PNGs stream through png-stream.ts; JPEG and
+// WebP decode in long-lived jSquash WASM decoders that scale straight from
+// their heaps (HeapDecoder); GIFs decode in JS (omggif); a box filter in JS
+// scales down (boxscale.ts) and mozjpeg (WASM) encodes.
 // The WASM modules are passed in because Workers can only load them as
 // bundled imports (worker.ts); tests compile them from node_modules.
 
@@ -16,10 +17,11 @@ import { type Size, imageSize, jpegInfo, jpegScans } from "./imgsize";
 import { Mutex } from "./mutex";
 import { PNG_MAX_SIDE, streamPng } from "./png-stream";
 
-// The Workers pixel caps, per decoder; a Worker isolate has 128 MB in all.
-// The figures are RSS growth of a fresh Node process from
-// scripts/measure-images.ts (2026-10-16): "cold" includes instantiating the
-// encoder, "warm" is each further image.
+// The Workers caps. A Worker isolate has 128 MB in all. The JPEG and WebP
+// decoders and the encoder each keep a WASM heap for the isolate's life (16
+// MiB each to start), so the caps bound how far those heaps can grow, and
+// everything else an image needs is freed with it (scripts/measure-images.ts
+// measures this in workerd).
 
 const MiB = 1024 * 1024;
 
@@ -61,13 +63,14 @@ export function jpegMaxPixels(bytes: Uint8Array): number {
 }
 
 /**
- * PNGs that stream (png-stream.ts) hold a few rows, so memory does not bound
- * them (photos up to 12 MP grow under 7 MiB warm; screenshots up to 16, the
- * inflated chunks waiting for collection). CPU does: about 15 ns a pixel,
- * though a one-pixel-wide strip costs about 90 (each row has its overhead),
- * so 100 MP takes 1.5 to 9 s. The 10 MiB body cap does not bound it: deflate
- * packs flat colour about 1000:1, so a 10 MiB PNG can declare billions of
- * pixels and would run past the 30 s CPU limit instead of getting a clear 413.
+ * The most pixels a PNG may have. A PNG streams (png-stream.ts) through a
+ * 64 KiB window and two rows, so memory does not bound it (in workerd a PNG
+ * costs 2 to 10 MiB beyond its own bytes, a 1 GiB decompression bomb
+ * included). CPU does: about 15 ns a pixel, 20 at 16 bits, so 100 MP takes
+ * 1.3 to 2 s. The 10 MiB body cap does not bound it: deflate packs flat colour
+ * about 1000:1, so a 10 MiB PNG can declare billions of pixels and would run
+ * past the 30 s CPU limit instead of getting a clear 413. PNG_MAX_SIDE also
+ * bounds each side.
  */
 export const PNG_STREAM_MAX_PIXELS = 100_000_000;
 
@@ -101,7 +104,14 @@ export interface WasmModules {
 
 /**
  * How long an image job waits for the one before it to finish before going
- * ahead anyway (see Mutex). Legitimate jobs take at most a second or two.
+ * ahead anyway (see Mutex). The slowest job the caps allow, a 100 MP PNG of
+ * 16-bit RGBA, takes about 2 s of CPU (2026-10-16, Node on a desktop); a
+ * JPEG or WebP well under 1 s.
+ *
+ * The cost: if a request's job, or its wait for the lock, is cancelled (the
+ * client went away) and its promises are dropped, it never releases the
+ * lock, and the next image in the isolate waits the full 10 s before going
+ * ahead. Each image after that waits only for the one before it.
  */
 const JOB_MAX_WAIT_MS = 10_000;
 

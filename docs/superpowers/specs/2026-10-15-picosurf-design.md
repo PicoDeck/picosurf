@@ -231,21 +231,26 @@ Known v1 limitation: non-Latin scripts render as `?`.
 
 A `Resizer` interface, `resize(bytes, type) → jpegBytes`, with two
 implementations:
-- **Workers:** 8-bit, non-interlaced PNGs stream: the image data is
-  inflated with `DecompressionStream` and unfiltered one row at a time.
-  JPEG, WebP and other PNGs decode whole with jSquash WASM codecs, and JPEG
-  and WebP get a fresh decoder instance per image, because WASM memory never
-  shrinks. GIF uses `omggif` (first frame). A box filter in JS scales the
-  image down, and MozJPEG (WASM) encodes it with progressive off. An isolate
-  runs one image at a time. Needs no other Cloudflare product.
+- **Workers:** PNGs (every colour type, bit depth and interlacing) stream:
+  a zlib inflater in JS writes into a fixed 64 KiB window and each row is
+  unfiltered as it arrives, so memory does not depend on the image's size or
+  how far its data expands. JPEG and WebP decode with jSquash WASM codecs,
+  one long-lived instance each, scaling straight from the decoder's heap with
+  no full-size copy; WASM memory never shrinks and is freed only when the
+  garbage collector gets to it, so a fresh instance per image would pile up.
+  GIF uses `omggif` (first frame). A box filter in JS scales the image down,
+  and MozJPEG (WASM) encodes it with progressive off. An isolate runs one
+  image at a time. Needs no other Cloudflare product.
 - **Node:** sharp (`.jpeg({ progressive: false })`).
 
 Output fits within 320×320, keeps the aspect ratio, is never enlarged, and is
 quality 75. Images over the resizer's pixel cap are refused (413) before
-decoding. The cap is 16 megapixels with sharp. On Workers it depends on the
-format, to stay inside the 128 MB isolate: 8 megapixels for JPEG, 100 for
-PNGs that stream (they need only a few rows of memory, so this caps CPU time),
-and 2 for other PNGs, WebP and GIF (`proxy/README.md`).
+decoding. The cap is 16 megapixels with sharp. On Workers, to stay inside
+the 128 MB isolate, it bounds each long-lived decoder heap: a JPEG may have
+as many pixels as its decode fits in 48 MiB (at most 8 megapixels; less for
+progressive JPEGs), a WebP as many as fit in 32 MiB (at most 2). PNGs may
+have 100 megapixels, at most 100,000 pixels each way, which caps CPU time
+rather than memory. GIFs may have 2 megapixels (`proxy/README.md`).
 
 Cloudflare Image Transformations (`fetch(url, { cf: { image } })`) would save
 Worker CPU but need the product enabled on a domain you own. It's a possible
@@ -265,7 +270,7 @@ proxy/
   src/ascii.ts        folding (5.6)
   src/feed.ts         RSS/Atom → feed list; feed discovery
   src/img.ts          Resizer interface; img-wasm.ts, img-sharp.ts
-  src/png-stream.ts   row-by-row PNG decoder (Workers)
+  src/png-stream.ts   row-by-row PNG decoder (Workers); src/inflate.ts its zlib inflater
   src/boxscale.ts     box-filter downscale (Workers)
   scripts/smoke.ts    live smoke run (7.1)
   scripts/measure-images.ts  memory of the Workers resizer, behind its caps

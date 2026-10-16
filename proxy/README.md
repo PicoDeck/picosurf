@@ -21,14 +21,17 @@ Reader mode needs an article of at least 500 characters. An article under 3000 c
 
 ## Image limits
 
-The two platforms resize images with different code, so their limits differ. An image over its limit gets 413 before it is decoded.
-- **Workers** caps each format by how much memory its decoder needs, since a Worker has 128 MB:
-  - JPEG: 8,000,000 pixels (`JPEG_MAX_PIXELS`). A JPEG decodes whole, at about 9 MiB per megapixel.
-  - 8-bit, non-interlaced PNG (most PNGs): 100,000,000 pixels (`PNG_STREAM_MAX_PIXELS`). These PNGs are decoded and scaled one row at a time, so they need only a few MiB. The cap limits CPU time.
-  - Other PNGs (16-bit, under 8 bits, or interlaced), WebP and GIF: 2,000,000 pixels (`WASM_MAX_PIXELS`).
+The two platforms resize images with different code, so their limits differ. An image over its limit gets 413 before it is decoded, as does any image over 10 MiB.
+- **Workers** has 128 MB per isolate. The JPEG and WebP decoders and the JPEG encoder each keep a WASM heap for the life of the isolate (16 MiB each to start), so the limits cap how far those heaps can grow:
+  - **JPEG:** as many pixels as fit a decoder heap of 48 MiB (`JPEG_HEAP_MAX`), and never more than 8,000,000 (`JPEG_MAX_PIXELS`). The heap holds the file twice and 4 bytes a pixel, plus 2 bytes a DCT coefficient for progressive JPEGs (3 a pixel at 4:2:0, 6 at 4:4:4). So a typical 8 MP baseline photo is allowed, while progressive JPEGs top out at about 5 MP (4:2:0) or 3.5 MP (4:4:4).
+  - **WebP:** as many pixels as fit a decoder heap of 32 MiB (`WEBP_HEAP_MAX`), and never more than 2,000,000. The heap holds the file twice and 8 bytes a pixel. A typical lossy WebP gets the full 2 MP.
+  - **PNG**, any kind: 100,000,000 pixels (`PNG_STREAM_MAX_PIXELS`), and at most 100,000 pixels each way (`PNG_MAX_SIDE`). PNGs are decoded and scaled one row at a time from a 64 KiB window, so a PNG needs a few MiB beyond its own bytes, however large it is or however far its data expands. The caps limit CPU time, to about 2 s at most.
+  - **GIF:** 2,000,000 pixels (`WASM_MAX_PIXELS`).
 - **Docker/Node** accepts images up to 16,000,000 pixels.
 
-The caps are in `src/img-wasm.ts`, with the measurements behind them. To measure again after changing the image code, run `npx tsx scripts/measure-images.ts`.
+The limits are in `src/img-wasm.ts` and `src/png-stream.ts`, with the measurements behind them. To measure again in workerd (the runtime Workers use) after changing the image code, run `npx tsx scripts/measure-images.ts workerd` (Linux).
+
+Image jobs in a Worker isolate run one at a time. If a request is cancelled while its image is being resized or waiting its turn (the client went away), the next image waits up to 10 s before going ahead.
 
 Workers also can't decode CMYK or YCCK JPEGs: the WASM build of mozjpeg can't convert them to RGB, so they get 415. Docker/Node decodes them.
 
