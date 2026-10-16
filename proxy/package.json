@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "smoke": "tsx scripts/smoke.ts",
     "fixtures:pages": "sh scripts/fetch-fixtures.sh",
-    "fixtures:images": "tsx scripts/make-image-fixtures.ts"
+    "fixtures:images": "tsx scripts/make-image-fixtures.ts",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@jsquash/jpeg": "1.6.0",
@@ -24,6 +25,7 @@
     "ipaddr.js": "2.5.0",
     "linkedom": "0.18.13",
     "omggif": "1.0.10",
+    "patch-package": "8.0.1",
     "sharp": "0.35.5",
     "tsx": "4.23.15",
     "undici": "7.30.0"
@@ -31,6 +33,7 @@
   "devDependencies": {
     "@types/node": "22.20.5",
     "@types/omggif": "1.0.5",
+    "htmlparser2": "10.1.0",
     "typescript": "7.0.2",
     "vitest": "5.0.4",
     "wrangler": "4.151.0"
