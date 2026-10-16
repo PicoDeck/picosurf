@@ -6,12 +6,15 @@ local M = {}
 M.TEXT, M.H1, M.H2, M.H3, M.ITEM, M.ITEMC = 1, 2, 3, 4, 5, 6
 M.QUOTE, M.PRE, M.LINK, M.IMAGE, M.BLANK, M.READ, M.BOX = 7, 8, 9, 10, 11, 12, 13
 
-local INDENT = 2
 local HEADINGS = { h1 = M.H1, h2 = M.H2, h3 = M.H3 }
 
--- boxes: optional {[k] = rows}. Image link k is laid out as that many BOX rows
--- (an inline picture's box, inline images spec 5.4) instead of its label.
-function M.build(lines, cols, boxes)
+-- m: layout metrics (proportional fonts spec 5.2): width, and adv and
+-- boldAdv (byte -> advance, see fonts.lua; nil: every byte 1 wide), all in
+-- the same units; indent (list items and quotes), preCols (columns of a
+-- preformatted line) and boxRows(h) (the rows of an inline picture box h px
+-- tall). boxes: optional {[k] = picture height}: image link k is laid out as
+-- m.boxRows(boxes[k]) BOX rows (inline images spec 5.4) instead of its label.
+function M.build(lines, m, boxes)
     local L = { count = 0, line = {}, s = {}, e = {}, style = {}, link = {}, cont = {}, text = {}, links = {} }
     local function add(li, s, e, style, link, cont)
         local n = L.count + 1
@@ -24,7 +27,7 @@ function M.build(lines, cols, boxes)
         if t == "blank" then
             add(li, 1, 0, M.BLANK, 0, false)
         elseif t == "pre" then
-            local text, w = ln.text, cols - 1
+            local text, w = ln.text, m.preCols
             if #text == 0 then add(li, 1, 0, M.PRE, 0, false) end
             local i = 1
             while i <= #text do
@@ -33,22 +36,24 @@ function M.build(lines, cols, boxes)
                 i = j + 1
             end
         else
-            local style, width, link = HEADINGS[t] or M.TEXT, cols, 0
-            if t == "item" then
-                style, width = M.ITEM, cols - INDENT
+            local style, width, adv, link = HEADINGS[t] or M.TEXT, m.width, m.adv, 0
+            if HEADINGS[t] then
+                adv = m.boldAdv
+            elseif t == "item" then
+                style, width = M.ITEM, m.width - m.indent
             elseif t == "quote" then
-                style, width = M.QUOTE, cols - INDENT
+                style, width = M.QUOTE, m.width - m.indent
             elseif t == "link" then
                 style = ln.image and M.IMAGE or (ln.dim and M.READ or M.LINK)
                 L.links[#L.links + 1] = { url = ln.url, label = ln.text, n = ln.n, image = ln.image,
                                           line = li, first = L.count + 1, last = 0 }
                 link = #L.links
             end
-            local box = boxes and ln.image and boxes[link]
-            if box then
-                for _ = 1, box do add(li, 1, 0, M.BOX, link, false) end
+            local h = boxes and ln.image and boxes[link]
+            if h then
+                for _ = 1, m.boxRows(h) do add(li, 1, 0, M.BOX, link, false) end
             else
-                local s, e = wrap.wrap(ln.text, width)
+                local s, e = wrap.wrap(ln.text, width, adv)
                 for k = 1, #s do
                     add(li, s[k], e[k], (style == M.ITEM and k > 1) and M.ITEMC or style, link, false)
                 end
@@ -57,6 +62,12 @@ function M.build(lines, cols, boxes)
         end
     end
     return L
+end
+
+-- Metrics for a layout counted in columns: every byte one wide, a two-column
+-- indent. Boxes are given in rows (boxRows passes them on), as tests do.
+function M.mono(cols)
+    return { width = cols, indent = 2, preCols = cols - 1, boxRows = function(rows) return rows end }
 end
 
 local ROW_FIELDS = { "line", "s", "e", "style", "link", "cont" }

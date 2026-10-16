@@ -10,14 +10,14 @@ local function page()
     parts[2] = "=> https://a.test/1 [1] one"
     parts[15] = "=> https://a.test/2 [2] two"
     parts[29] = "=> https://a.test/3 [3] three"
-    return pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), 40), 10)
+    return pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), layout.mono(40)), 10)
 end
 
 -- One link per row (a feed list): rows 1-30 are links [1]..[30].
 local function list()
     local parts = {}
     for i = 1, 30 do parts[i] = "=> https://a.test/" .. i .. " item " .. i end
-    return pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), 40), 10)
+    return pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), layout.mono(40)), 10)
 end
 
 -- Text with links on rows 2 and 5 and nothing else until row 40.
@@ -26,7 +26,7 @@ local function sparse()
     for i = 1, 40 do parts[i] = "line " .. i end
     parts[2] = "=> https://a.test/1 one"
     parts[5] = "=> https://a.test/2 two"
-    return pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), 40), 10)
+    return pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), layout.mono(40)), 10)
 end
 
 -- 40 lines: pictures on rows 3, 14 and 38 (links 1, 2, 5), links on rows 20 and 25 (3, 4).
@@ -38,7 +38,7 @@ local function pictures()
     parts[20] = "=> https://a.test/1 one"
     parts[25] = "=> https://a.test/2 two"
     parts[38] = "=> https://a.test/r.jpg [IMG] picture"
-    local L = layout.build(g.parse(table.concat(parts, "\n")), 40)
+    local L = layout.build(g.parse(table.concat(parts, "\n")), layout.mono(40))
     return pagestate.new(L, 10), L
 end
 
@@ -89,12 +89,12 @@ return {
         T.eq(ps:percent(), 0)
         ps:scroll(10); T.eq(ps:percent(), 50)
         ps:scroll(100); T.eq(ps:percent(), 100)
-        local short = pagestate.new(layout.build(g.parse("one\ntwo"), 40), 10)
+        local short = pagestate.new(layout.build(g.parse("one\ntwo"), layout.mono(40)), 10)
         T.eq(short:percent(), 100)
     end,
     opening_selects_the_topmost_visible_link = function()
         T.eq(page().sel, 1, "[1] on row 2 is the first link on screen")
-        local none = pagestate.new(layout.build(g.parse("one\ntwo"), 40), 10)
+        local none = pagestate.new(layout.build(g.parse("one\ntwo"), layout.mono(40)), 10)
         T.eq(none.sel, nil, "no links, no selection")
     end,
     next_link_selects_among_visible_links_and_wraps = function()
@@ -118,7 +118,7 @@ return {
         parts[2] = "=> https://a.test/1 [1] one"
         parts[8] = "=> https://a.test/2 [2] two"
         parts[15] = "=> https://a.test/3 [3] three"
-        local ps = pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), 40), 10)
+        local ps = pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), layout.mono(40)), 10)
         ps:scroll(7) -- rows 8-17: [2] and [3]
         T.eq(ps.sel, 2)
         ps:nextLink(1); T.eq(ps.sel, 3, "Tab moves on from the selected link")
@@ -127,7 +127,7 @@ return {
     end,
     a_link_that_starts_on_screen_beats_a_tail = function()
         local long = "=> https://a.test/1 " .. string.rep("word ", 20) -- wraps to 3 rows at 40
-        local L = layout.build(g.parse(long .. "\nx\n=> https://a.test/2 two\n" .. string.rep("y\n", 20)), 40)
+        local L = layout.build(g.parse(long .. "\nx\n=> https://a.test/2 two\n" .. string.rep("y\n", 20)), layout.mono(40))
         T.eq(L.links[1].first, 1); T.eq(L.links[1].last, 3)
         local ps = pagestate.new(L, 10)
         ps:restore(3, nil) -- row 3 is [1]'s last row
@@ -171,7 +171,7 @@ return {
     scrolls_to_the_end_of_a_very_long_page = function() -- Review Focus 1
         local parts = {}
         for i = 1, 5000 do parts[i] = "line " .. i end
-        local ps = pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), 52), 21)
+        local ps = pagestate.new(layout.build(g.parse(table.concat(parts, "\n")), layout.mono(52)), 21)
         while ps:page(1) do end
         T.eq(ps:percent(), 100)
         T.eq(ps:lastVisible(), 5000)

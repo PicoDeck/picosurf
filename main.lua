@@ -5,4 +5,4 @@ if not require then
     return
 end
 local App = require("src.app")
-App.new(picocalc, APP_ID):run()
+App.new(picocalc, APP_ID, APP_DIR):run()

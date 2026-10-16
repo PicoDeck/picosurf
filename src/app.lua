@@ -7,6 +7,7 @@ local layout = require("src.layout")
 local pagestate = require("src.pagestate")
 local store = require("src.store")
 local keys = require("src.keys")
+local fonts = require("src.fonts")
 local theme = require("src.theme")
 local feeds = require("src.feeds")
 local inline = require("src.inline")
@@ -15,7 +16,7 @@ local App = {}
 App.__index = App
 App.MAX_BACK, App.MAX_CACHE = 20, 3
 
--- A copy of a page's inline box rows, for a Back entry or Reload (inline images spec 5.6).
+-- A copy of a page's inline box heights, for a Back entry or Reload (inline images spec 5.6).
 local function copyBoxes(b)
     if not b then return nil end
     local c = {}
@@ -26,8 +27,8 @@ end
 local SCREENS = { "home", "page", "image", "settings", "loading", "message" }
 
 -- pc: the picocalc API (a fake in host tests); appId: app.json's id.
-function App.new(pc, appId)
-    local self = setmetatable({ pc = pc }, App)
+function App.new(pc, appId, appDir)
+    local self = setmetatable({ pc = pc, appDir = appDir or "/apps/picosurf" }, App)
     self.disp, self.ui, self.input, self.sys = pc.display, pc.ui, pc.input, pc.sys
     self.store = store.new(pc.fs, pc.json, "/data/" .. appId)
     self.decode = keys.decoder(pc.input)
@@ -42,10 +43,10 @@ end
 function App:loadConfig()
     local c = self.pc.config
     self.cfg = {
-        proxyUrl = c.get("proxy_url") or "", token = c.get("token") or "", font = c.get("font") or "scientifica",
+        proxyUrl = c.get("proxy_url") or "", token = c.get("token") or "", font = fonts.normalize(c.get("font") or "scientifica"),
         images = c.get("images") == "inline" and "inline" or "links",
     }
-    self.theme = theme.new(self.disp, self.cfg.font)
+    self:loadFont()
     self.oldProxyWarned = nil -- a changed setting, say a newer proxy: pictures are tried again
     self:cancelRefresh() -- before closeAll, which would fail its requests
     if self.pool then self.pool:closeAll() end
@@ -54,6 +55,19 @@ function App:loadConfig()
         self.base, self.baseErr = url.parseBase(self.cfg.proxyUrl)
         if self.base then self.pool = http.pool(self.pc.network, self.base) end
     end
+end
+
+-- The reading font (proportional fonts spec 3, 4): loaded again when the
+-- setting changed, or when the last load fell back to Scientifica.
+function App:loadFont()
+    local want = self.cfg.font
+    if self.fontSpec and self.fontSpec.name == want then return end
+    if self.fontSpec then fonts.unload(self.disp, self.fontSpec) end
+    local spec, err = fonts.load(self.disp, self.appDir, want)
+    self.fontSpec = spec
+    self.theme = theme.new(self.disp, spec)
+    self:log("font", spec.name)
+    if err then self:log("error", "-", err) end
 end
 
 function App:saveConfig(key, value)
@@ -326,11 +340,10 @@ end
 -- saved rows counted boxes that are gone: the saved source line goes back
 -- to the top instead.
 function App:buildPage(finalUrl, mode, r, restore)
-    local cols = theme.cols(self.theme)
     local boxes = self.cfg.images == "inline" and restore and copyBoxes(restore.boxes) or nil
     local lines, L = self:withMemoryRetry(function()
         local lines = r.kind == "text" and gemtext.fromPlain(r.body) or gemtext.parse(r.body)
-        return lines, layout.build(lines, cols, boxes)
+        return lines, layout.build(lines, theme.metrics(self.theme), boxes)
     end)
     if not lines then return nil, L end
     local page = {
@@ -357,7 +370,7 @@ function App:relayout()
     local old = p.ps
     local line, sel = p.L.line[old.top], old.sel
     local L, err = self:withMemoryRetry(function()
-        return layout.build(p.lines, theme.cols(self.theme), p.inline and p.inline.boxes)
+        return layout.build(p.lines, theme.metrics(self.theme), p.inline and p.inline.boxes)
     end)
     if not L then
         self.page, self.back = nil, {}
@@ -478,14 +491,13 @@ function App:decodeInline(p, u)
     local e = st.byUrl[u]
     e.img, e.w, e.h = img, w, h
     st:touch(u)
-    local rows = inline.rows(h)
+    local rows = inline.rows(h, self.theme.rowH)
     for k, link in ipairs(p.L.links) do
         if link.image and link.url == u then
-            if st.boxes[k] ~= rows or p.L.style[link.first] ~= layout.BOX then
-                local first = link.first
-                p.ps:shift(first, layout.setBox(p.L, k, rows))
-                st.boxes[k] = rows
+            if p.L.style[link.first] ~= layout.BOX or link.last - link.first + 1 ~= rows then
+                p.ps:shift(link.first, layout.setBox(p.L, k, rows))
             end
+            st.boxes[k] = h -- heights, so a font with other rows recomputes them
             self:log("inline", k, "w=" .. w, "h=" .. h, "rows=" .. rows)
         end
     end
@@ -713,7 +725,7 @@ end
 function App:showFeed(feed, opts)
     opts = opts or {}
     local lines = feeds.lines(feed, self.store:feedData(feed.id))
-    local L = layout.build(lines, theme.cols(self.theme))
+    local L = layout.build(lines, theme.metrics(self.theme))
     local page = {
         url = feed.url, want = "feed", mode = "feed", title = feed.title or feed.url, lines = lines, L = L,
         isFeedList = true, feedId = feed.id,

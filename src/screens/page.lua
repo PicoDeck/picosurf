@@ -15,7 +15,7 @@ local function rowColor(th, st)
     if st == layout.IMAGE then return th.image end
     if st == layout.READ then return th.read end
     if st == layout.QUOTE then return th.quote end
-    if st == layout.PRE then return th.pre end
+    if st == layout.PRE then return th.preColor end
     return th.fg
 end
 

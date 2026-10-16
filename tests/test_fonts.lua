@@ -1,6 +1,7 @@
 local T = require("tests.t")
 local fakepc = require("tests.fakepc")
 local fonts = require("src.fonts")
+local theme = require("src.theme")
 
 local DIR = "/apps/picosurf"
 local function b(c) return c:byte() end
@@ -63,5 +64,15 @@ return {
         T.eq(fonts.nextChoice("sans"), "serif"); T.eq(fonts.nextChoice("serif"), "scientifica")
         T.eq(fonts.LABELS.scientifica, "Scientifica"); T.eq(fonts.LABELS["8x12"], "8x12 (large)")
         T.eq(fonts.LABELS.sans, "Sans"); T.eq(fonts.LABELS.serif, "Serif")
+    end,
+    theme_metrics_come_from_the_font = function()
+        local F = fakepc.new()
+        local d = F.pc.display
+        local sci = theme.metrics(theme.new(d, fonts.load(d, DIR, "scientifica")))
+        T.eq(sci.width, 312); T.eq(sci.preCols, 51); T.eq(sci.indent, 12); T.eq(sci.boxRows(120), 10)
+        local th = theme.new(d, fonts.load(d, DIR, "sans"))
+        T.eq(th.fontName, "sans"); T.eq(th.rowH, 14); T.eq(th.cw, 6); T.eq(theme.rows(th), 20)
+        local m = theme.metrics(th)
+        T.eq(m.preCols, 51); T.eq(m.boxRows(120), 9); T.eq(m.adv, th.adv); T.eq(m.boldAdv, th.boldAdv)
     end,
 }

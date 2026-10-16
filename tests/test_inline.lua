@@ -16,7 +16,7 @@ local function page()
     end
     parts[33] = "=> https://a.test/x a link"
     parts[37] = "=> gemini://g.test/37.jpg [IMG] elsewhere"
-    local L = layout.build(g.parse(table.concat(parts, "\n")), 40)
+    local L = layout.build(g.parse(table.concat(parts, "\n")), layout.mono(40))
     local ps = pagestate.new(L, 10)
     ps:scroll(29)
     return L, ps
@@ -27,8 +27,10 @@ local function u(row) return "https://img.test/" .. row .. ".jpg" end
 return {
     a_box_fits_its_picture_and_its_padding = function()
         T.eq(inline.FIT, "312x126")
-        T.eq(inline.rows(126), 10); T.eq(inline.rows(100), 8); T.eq(inline.rows(50), 5)
-        T.eq(inline.rows(9), 1); T.eq(inline.rows(10), 2); T.eq(inline.rows(1), 1)
+        T.eq(inline.rows(126, 13), 10); T.eq(inline.rows(100, 13), 8); T.eq(inline.rows(50, 13), 5)
+        T.eq(inline.rows(9, 13), 1); T.eq(inline.rows(10, 13), 2); T.eq(inline.rows(1, 13), 1)
+        T.eq(inline.rows(126, 14), 10); T.eq(inline.rows(120, 13), 10); T.eq(inline.rows(120, 14), 9)
+        T.eq(inline.rows(100, 14), 8)
     end,
     orders_the_window_on_screen_then_below_then_above = function()
         local L, ps = page()

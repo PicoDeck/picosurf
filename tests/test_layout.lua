@@ -2,6 +2,9 @@ local T = require("tests.t")
 local wrap = require("src.wrap")
 local layout = require("src.layout")
 local g = require("src.gemtext")
+local fakepc = require("tests.fakepc")
+local fonts = require("src.fonts")
+local theme = require("src.theme")
 
 local function rows(text, width)
     local s, e = wrap.wrap(text, width)
@@ -40,7 +43,47 @@ local function prows(text, width, adv)
     return table.concat(out, "|")
 end
 
+-- Proportional metrics: 'i' 3 px, 'm' 9, bold one px wider, the rest 6;
+-- 14 px rows for boxes.
+local function propMetrics(width)
+    local adv, bold = { widest = 9 }, { widest = 10 }
+    for c = 32, 126 do adv[c], bold[c] = 6, 7 end
+    adv[("i"):byte()], adv[("m"):byte()] = 3, 9
+    bold[("i"):byte()], bold[("m"):byte()] = 4, 10
+    return { width = width, adv = adv, boldAdv = bold, indent = 12, preCols = 5,
+             boxRows = function(h) return (h + 4 + 13) // 14 end }
+end
+
+local SAMPLE = "# A heading that wraps on the narrow screen\nsome text that goes on long enough to wrap twice or more on screen\n"
+    .. "* a list item long enough to wrap onto a second row\n> a quote long enough to wrap onto a second row\n"
+    .. "```\n" .. string.rep("code ", 14) .. "\n```\n=> https://a.test/ [1] a link label that wraps on the screen\n"
+
 return {
+    lays_out_by_measured_width = function()
+        local L = layout.build(g.parse("aaaa aaaa\n# aaaa aaaa\n* aaaa aaaa\n```\nabcdefgh\n```\n"), propMetrics(54))
+        local got = {}
+        for r = 1, L.count do got[r] = L.style[r] .. ":" .. layout.rowText(L, r) end
+        T.eq(table.concat(got, "|"), table.concat({
+            layout.TEXT .. ":aaaa aaaa", -- 54 px exactly
+            layout.H1 .. ":aaaa", layout.H1 .. ":aaaa", -- 63 px in bold: too wide
+            layout.ITEM .. ":aaaa", layout.ITEMC .. ":aaaa", -- 54 - 12 = 42 px for items
+            layout.PRE .. ":abcde", layout.PRE .. ":fgh", -- cut at preCols, not by width
+        }, "|"))
+    end,
+    boxes_are_picture_heights_turned_into_rows = function()
+        local lines = g.parse(IMGPAGE)
+        local L = layout.build(lines, propMetrics(60), { [1] = 120 })
+        T.eq(L.links[1].last - L.links[1].first + 1, 9, "120 px on 14 px rows")
+    end,
+    scientifica_and_8x12_lay_out_as_columns_did = function()
+        local F = fakepc.new()
+        local d = F.pc.display
+        local lines = g.parse(SAMPLE)
+        local sci = theme.new(d, fonts.load(d, "/apps/picosurf", "scientifica"))
+        T.eq(snapshot(layout.build(lines, theme.metrics(sci))), snapshot(layout.build(lines, layout.mono(52))))
+        local big = theme.new(d, fonts.load(d, "/apps/picosurf", "8x12"))
+        T.eq(snapshot(layout.build(lines, theme.metrics(big))), snapshot(layout.build(lines, layout.mono(39))))
+    end,
     wrap_breaks_at_spaces_and_splits_long_words = function()
         T.eq(rows("hello world", 5), "hello|world")
         T.eq(rows("hello world", 11), "hello world")
@@ -54,7 +97,7 @@ return {
         T.eq(#s, 1); T.eq(s[1], 1); T.eq(e[1], 0)
     end,
     builds_rows_with_styles_and_indents = function()
-        local L = layout.build(g.parse("# Title\nhello world foo\n* item text here\n> quoted words\n\n"), 10)
+        local L = layout.build(g.parse("# Title\nhello world foo\n* item text here\n> quoted words\n\n"), layout.mono(10))
         local got = {}
         for r = 1, L.count do got[r] = L.style[r] .. ":" .. layout.rowText(L, r) end
         T.eq(table.concat(got, "|"), table.concat({
@@ -66,7 +109,7 @@ return {
         }, "|"))
     end,
     preformatted_rows_are_cut_and_marked = function()
-        local L = layout.build(g.parse("```\nabcdefghijklm\n\n```\n"), 6)
+        local L = layout.build(g.parse("```\nabcdefghijklm\n\n```\n"), layout.mono(6))
         T.eq(L.count, 4)
         T.eq(layout.rowText(L, 1), "abcde"); T.eq(L.cont[1], true)
         T.eq(layout.rowText(L, 2), "fghij"); T.eq(L.cont[2], true)
@@ -76,7 +119,7 @@ return {
     links_record_their_rows = function()
         local lines = g.parse("intro\n=> https://a.test/ [1] a long link label\n=> https://a.test/c.jpg [IMG] Cat\n")
         lines[#lines + 1] = { t = "link", url = "https://a.test/r", text = "read one", dim = true }
-        local L = layout.build(lines, 10)
+        local L = layout.build(lines, layout.mono(10))
         T.eq(#L.links, 3)
         local a = L.links[1]
         -- "[1] a long link label" at 10 columns wraps to "[1] a long" / "link label".
@@ -91,13 +134,13 @@ return {
         local line = string.rep("word ", 20)
         for i = 1, 5000 do parts[i] = line end
         local started = os.clock()
-        local L = layout.build(g.parse(table.concat(parts, "\n")), 52)
+        local L = layout.build(g.parse(table.concat(parts, "\n")), layout.mono(52))
         T.eq(L.count, 10000, "100 characters at 52 columns is two rows per line")
         T.ok(os.clock() - started < 3, "layout took under 3 s on the host")
     end,
     boxes_replace_a_picture_label_with_box_rows = function()
         local lines = g.parse(IMGPAGE)
-        local L = layout.build(lines, 10, { [1] = 4 })
+        local L = layout.build(lines, layout.mono(10), { [1] = 4 })
         local link = L.links[1]
         T.eq(link.first, 3); T.eq(link.last, 6)
         for r = 3, 6 do
@@ -108,7 +151,7 @@ return {
     end,
     boxes_ignore_links_that_are_not_pictures = function()
         local lines = g.parse(IMGPAGE)
-        T.eq(snapshot(layout.build(lines, 10, { [2] = 5 })), snapshot(layout.build(lines, 10)))
+        T.eq(snapshot(layout.build(lines, layout.mono(10), { [2] = 5 })), snapshot(layout.build(lines, layout.mono(10))))
     end,
     set_box_matches_build_with_the_same_boxes = function()
         -- Pictures at the start (link 1), in the middle with a wrapped label
@@ -118,18 +161,18 @@ return {
         local lines = g.parse(text)
         for _, case in ipairs({ { 1, 3 }, { 2, 1 }, { 2, 5 }, { 4, 2 }, { 4, 10 } }) do
             local k, rows = case[1], case[2]
-            local L = layout.build(lines, 10)
+            local L = layout.build(lines, layout.mono(10))
             local before = L.count
             local delta = layout.setBox(L, k, rows)
-            local want = layout.build(lines, 10, { [k] = rows })
+            local want = layout.build(lines, layout.mono(10), { [k] = rows })
             T.eq(snapshot(L), snapshot(want), "link " .. k .. " as " .. rows .. " rows")
             T.eq(delta, want.count - before, "delta for link " .. k)
             T.eq(L.line[L.count + 1], nil, "nothing left past the end")
         end
         -- Two boxes, then the first resized again.
-        local L = layout.build(lines, 10)
+        local L = layout.build(lines, layout.mono(10))
         layout.setBox(L, 2, 6); layout.setBox(L, 4, 3); layout.setBox(L, 2, 2)
-        T.eq(snapshot(L), snapshot(layout.build(lines, 10, { [2] = 2, [4] = 3 })))
+        T.eq(snapshot(L), snapshot(layout.build(lines, layout.mono(10), { [2] = 2, [4] = 3 })))
     end,
     wrap_by_width_breaks_at_spaces_by_measured_width = function() -- Review Focus 1
         local adv = propAdv()
