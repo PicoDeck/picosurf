@@ -85,8 +85,10 @@ export function jpegMaxPixels(bytes: Uint8Array): number {
  * The most pixels a PNG may have. A PNG streams (png-stream.ts) through a
  * 64 KiB window and two rows, so memory does not bound it (in workerd a PNG
  * costs 2 to 10 MiB beyond its own bytes, a 1 GiB decompression bomb
- * included). CPU does: about 15 ns a pixel, 20 at 16 bits, so 100 MP takes
- * 1.3 to 2 s. The 10 MiB body cap does not bound it: deflate packs flat colour
+ * included). CPU does: 100 MP takes from 1.3 s (8-bit, unfiltered) to 2.5 to
+ * 3.7 s (16-bit RGBA, every row Paeth-filtered, interlaced; two machines),
+ * and image data made of tiny dynamic deflate blocks adds up to 1.4 s for a
+ * 10 MiB file. The 10 MiB body cap does not bound it: deflate packs flat colour
  * about 1000:1, so a 10 MiB PNG can declare billions of pixels and would run
  * past the 30 s CPU limit instead of getting a clear 413. PNG_MAX_SIDE also
  * bounds each side.
@@ -124,7 +126,8 @@ export interface WasmModules {
 /**
  * How long an image job waits for the one before it to finish before going
  * ahead anyway (see Mutex). The slowest job the caps allow, a 100 MP PNG of
- * 16-bit RGBA, takes about 2 s of CPU (2026-10-16, Node on a desktop); a
+ * 16-bit RGBA, every row Paeth-filtered and interlaced, with its image data
+ * made of tiny deflate blocks, takes up to about 5 s of CPU (2026-10-16); a
  * JPEG or WebP well under 1 s.
  *
  * The cost: if a request's job, or its wait for the lock, is cancelled (the

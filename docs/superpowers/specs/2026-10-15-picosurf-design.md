@@ -129,9 +129,10 @@ shows as is.
 | 401 | missing or wrong token (compared in constant time) |
 | 403 | the target resolves to a blocked address |
 | 413 | upstream body over the cap, or an image over its pixel cap (5.8) |
-| 415 | unsupported content type, or no feed found |
+| 415 | unsupported content type, no feed found, or an image that cannot be decoded (on Workers also a CMYK JPEG, or one of over 100 scans) |
 | 500 | `PROXY_TOKEN` not configured (fail closed; no request is served) |
 | 502 | upstream error, with the upstream status in `X-Upstream-Status`, e.g. `Site returned 404 Not Found` |
+| 503 | Workers only: two of a format's decoders gave up on broken images and are not yet freed; that format's images wait (`Retry-After: 60`), see 5.8 |
 | 504 | upstream timeout |
 
 ### 5.4 safefetch
@@ -238,9 +239,13 @@ implementations:
   one long-lived instance each, scaling straight from the decoder's heap with
   no full-size copy; WASM memory never shrinks and is freed only when the
   garbage collector gets to it, so a fresh instance per image would pile up.
-  GIF uses `omggif` (first frame). A box filter in JS scales the image down,
-  and MozJPEG (WASM) encodes it with progressive off. An isolate runs one
-  image at a time. Needs no other Cloudflare product.
+  A decode that throws (mozjpeg calls exit() on a broken JPEG) costs the
+  instance: the next image gets a new one, and while two dropped instances
+  of a codec wait for the garbage collector, that codec's images get 503.
+  CMYK and YCCK JPEGs and JPEGs of over 100 scans are refused (415) before
+  decoding. GIF uses `omggif` (first frame). A box filter in JS scales the
+  image down, and MozJPEG (WASM) encodes it with progressive off. An isolate
+  runs one image at a time. Needs no other Cloudflare product.
 - **Node:** sharp (`.jpeg({ progressive: false })`).
 
 Output fits within 320×320, keeps the aspect ratio, is never enlarged, and is
