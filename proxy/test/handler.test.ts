@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ProxyError } from "../src/errors";
 import { type Deps, OUTPUT_CAP, handleRequest } from "../src/handler";
 import type { Resizer } from "../src/img";
 import { fakeFetch, html, redirect } from "./helpers/fakefetch";
@@ -197,6 +198,14 @@ describe("images", () => {
     expect(res.status).toBe(415);
     expect(await res.text()).toBe("Could not read the image size\n");
     expect(d.resizer.resize).not.toHaveBeenCalled();
+  });
+  it("passes a resizer's own refusal through: its status, reason and headers", async () => {
+    const d = deps({ "https://example.com/a.jpg": new Response(imageFixture("photo.jpg"), { headers: { "Content-Type": "image/jpeg" } }) });
+    d.resizer.resize.mockRejectedValueOnce(new ProxyError(503, "Busy, try again shortly", { "Retry-After": "30" }));
+    const res = await get("https://example.com/a.jpg", d.deps);
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBe("30");
+    expect(await res.text()).toBe("Busy, try again shortly\n");
   });
   it("415s an image the resizer cannot decode", async () => {
     const d = deps({ "https://example.com/a.jpg": new Response(imageFixture("photo.jpg"), { headers: { "Content-Type": "image/jpeg" } }) });

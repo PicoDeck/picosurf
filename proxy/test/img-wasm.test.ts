@@ -4,6 +4,7 @@ import { handleRequest } from "../src/handler";
 import {
   JPEG_HEAP_MAX,
   JPEG_MAX_PIXELS,
+  JPEG_MAX_SCANS,
   PNG_STREAM_MAX_PIXELS,
   WASM_MAX_PIXELS,
   WEBP_HEAP_MAX,
@@ -11,7 +12,8 @@ import {
   jpegMaxPixels,
   webpMaxPixels,
 } from "../src/img-wasm";
-import { jpegInfo } from "../src/imgsize";
+import { jpegInfo, jpegScans } from "../src/imgsize";
+import { withRepeatedScan } from "./helpers/jpeg";
 import { PNG_MAX_SIDE } from "../src/png-stream";
 import { fakeFetch } from "./helpers/fakefetch";
 import { SIGNATURE, concat, encodePng, ihdr, photo } from "./helpers/png";
@@ -190,11 +192,27 @@ describe("wasm resizer pixel caps", () => {
     expect((await viaHandler(new Uint8Array(webp), "image/webp")).status).toBe(413);
   });
 
-  it("answers 415 for a CMYK JPEG, and the next JPEG still resizes", async () => {
+  it("answers 415 for a CMYK JPEG without decoding it, and the next JPEG still resizes", async () => {
     const cmyk = await sharp(photo(400, 300, 3), { raw: { width: 400, height: 300, channels: 3 } }).toColourspace("cmyk").jpeg().toBuffer();
     const res = await viaHandler(new Uint8Array(cmyk), "image/jpeg");
     expect(res.status).toBe(415);
-    expect(await res.text()).toBe("Could not decode the image\n");
+    expect(await res.text()).toBe("CMYK JPEGs are not supported\n");
     expect((await viaHandler(imageFixture("photo.jpg"), "image/jpeg")).status).toBe(200);
+  });
+
+  it("answers 415 for a JPEG of more than JPEG_MAX_SCANS scans, without decoding it", async () => {
+    const progressive = imageFixture("photo-progressive.jpg");
+    const many = withRepeatedScan(progressive, JPEG_MAX_SCANS + 1 - jpegScans(progressive));
+    expect(jpegScans(many)).toBe(JPEG_MAX_SCANS + 1);
+    const res = await viaHandler(many, "image/jpeg");
+    expect(res.status).toBe(415);
+    expect(await res.text()).toBe(`JPEG has too many scans (over ${JPEG_MAX_SCANS})\n`);
+  });
+
+  it("resizes a JPEG of JPEG_MAX_SCANS scans", async () => {
+    const progressive = imageFixture("photo-progressive.jpg");
+    const many = withRepeatedScan(progressive, JPEG_MAX_SCANS - jpegScans(progressive));
+    expect(jpegScans(many)).toBe(JPEG_MAX_SCANS);
+    expect((await viaHandler(many, "image/jpeg")).status).toBe(200);
   });
 });

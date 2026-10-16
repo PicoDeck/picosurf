@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { createWasmResizer } from "../src/img-wasm";
 import { photo } from "./helpers/png";
+import { withBrokenLastScan } from "./helpers/jpeg";
 import { imageFixture } from "./helpers/resizer-contract";
 import { wasmModules } from "./helpers/wasm";
 
@@ -47,9 +48,17 @@ describe("wasm resizer codec instances", () => {
     expect(count()).toEqual({ jpegDec: 1, jpegEnc: 1, webpDec: 0 });
   });
 
-  it("replaces the JPEG decoder after a decode fails (mozjpeg aborts on CMYK)", async () => {
+  it("refuses a CMYK JPEG before decoding it: the decoder is kept", async () => {
     const cmyk = await sharp(photo(80, 60, 3), { raw: { width: 80, height: 60, channels: 3 } }).toColourspace("cmyk").jpeg().toBuffer();
-    await expect(resizer.resize(new Uint8Array(cmyk), "jpeg")).rejects.toThrow();
+    await resizer.resize(imageFixture("photo.jpg"), "jpeg");
+    created.length = 0;
+    await expect(resizer.resize(new Uint8Array(cmyk), "jpeg")).rejects.toThrow("CMYK");
+    await resizer.resize(imageFixture("photo.jpg"), "jpeg");
+    expect(count().jpegDec).toBe(0);
+  });
+
+  it("replaces the JPEG decoder after mozjpeg gives up partway through a decode", async () => {
+    await expect(resizer.resize(withBrokenLastScan(imageFixture("photo-progressive.jpg")), "jpeg")).rejects.toThrow();
     await resizer.resize(imageFixture("photo.jpg"), "jpeg");
     await resizer.resize(imageFixture("photo.jpg"), "jpeg");
     expect(count().jpegDec).toBe(1);

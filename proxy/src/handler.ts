@@ -138,7 +138,9 @@ async function imageResponse(bytes: Uint8Array, mime: string, resizer: Resizer, 
   let jpeg: Uint8Array;
   try {
     jpeg = await resizer.resize(bytes, type);
-  } catch {
+  } catch (e) {
+    // A resizer may refuse with its own status and reason; any other failure is undecodable data.
+    if (e instanceof ProxyError) throw e;
     throw new ProxyError(415, "Could not decode the image");
   }
   return new Response(jpeg.slice().buffer, { headers: { "Content-Type": "image/jpeg", ...NO_STORE, ...headers } });

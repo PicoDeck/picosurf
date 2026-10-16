@@ -12,6 +12,7 @@ import webpDec from "@jsquash/webp/codec/dec/webp_dec.js";
 import { GifReader } from "omggif";
 import { type Rgba, boxScale } from "./boxscale";
 import type { ImageType } from "./content";
+import { ProxyError } from "./errors";
 import { JPEG_QUALITY, type Resizer, fitWithin } from "./img";
 import { type Size, imageSize, jpegInfo, jpegScans } from "./imgsize";
 import { Mutex } from "./mutex";
@@ -35,6 +36,24 @@ export const JPEG_MAX_PIXELS = 8_000_000;
  * as fit (jpegMaxPixels).
  */
 export const JPEG_HEAP_MAX = 48 * MiB;
+
+/**
+ * The most scans a JPEG may have. mozjpeg decodes every scan in full, and a
+ * JPEG can repeat one as often as it likes (50,000 repeats took 5.8 s of CPU,
+ * so a 10 MiB file would run past the 30 s limit). Real progressive JPEGs
+ * have about 10.
+ */
+export const JPEG_MAX_SCANS = 100;
+
+/**
+ * Refuses, before decoding, a JPEG the decoder should not see: CMYK or YCCK
+ * (4 components), which mozjpeg cannot convert to RGB and gives up on with
+ * exit(), costing the instance; and one with too many scans.
+ */
+function refuseJpeg(bytes: Uint8Array): void {
+  if (jpegInfo(bytes)?.components.length === 4) throw new ProxyError(415, "CMYK JPEGs are not supported");
+  if (jpegScans(bytes) > JPEG_MAX_SCANS) throw new ProxyError(415, `JPEG has too many scans (over ${JPEG_MAX_SCANS})`);
+}
 
 /** SOF markers of progressive JPEGs. */
 const PROGRESSIVE = new Set([0xc2, 0xc6, 0xca, 0xce]);
@@ -185,8 +204,9 @@ export function createWasmResizer(mods: WasmModules): Resizer {
       }
       return WASM_MAX_PIXELS;
     },
-    resize: (bytes, type) =>
-      jobs.run(async () => {
+    async resize(bytes, type) {
+      if (type === "jpeg") refuseJpeg(bytes);
+      return jobs.run(async () => {
         const scaled = await decodeScaled(bytes, type, decoders);
         const jpeg = await encoder.get();
         try {
@@ -195,7 +215,8 @@ export function createWasmResizer(mods: WasmModules): Resizer {
           encoder.drop();
           throw e;
         }
-      }),
+      });
+    },
   };
 }
 
