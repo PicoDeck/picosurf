@@ -5,7 +5,6 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import { findFeedLink } from "./feed";
 import { escapeLine, toGemtext } from "./html2gmi";
-import { ProxyError } from "./errors";
 import { collapse, hostPath } from "./text";
 
 export type PageMode = "reader" | "full";
@@ -26,57 +25,9 @@ export const LONG_ARTICLE_CHARS = 3000;
 export const MIN_COVERAGE = 0.25;
 /** Pages with elements nested deeper than this go straight to the full page. */
 export const MAX_READER_DEPTH = 300;
-/** Pages with tags nested deeper than this are refused (413) before parsing: the HTML parser is quadratic in nesting depth. */
-export const MAX_HTML_DEPTH = 512;
 const JUNK = "script, style, noscript, svg, template, iframe, canvas, video, audio, [hidden], [aria-hidden=true]";
 
-const parse = (html: string) => {
-  assertNestingOk(html);
-  return parseHTML(html).document as unknown as Document;
-};
-
-const VOID_TAGS = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
-/** Tags the parser closes on its own, so an unclosed run of them does not nest. */
-const IMPLIED_END = new Set("p li dt dd tr td th tbody thead tfoot option optgroup colgroup rt rp".split(" "));
-/** Elements whose contents are text, not markup. */
-const RAW_TEXT = new Set(["script", "style", "textarea", "title"]);
-const RAW_END: Record<string, RegExp> = Object.fromEntries([...RAW_TEXT].map((n) => [n, new RegExp(`</${n}(?=[\\s/>])`, "gi")]));
-
-/**
- * One linear pass over the HTML that throws a 413 as soon as more than MAX_HTML_DEPTH tags are open at once.
- * An approximation of the parser's own stack, good enough to catch hostile pages; a close tag pops back to
- * its last matching open tag, and the cap bounds that search.
- */
-export function assertNestingOk(html: string): void {
-  const tag = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][^\s/>]*)[^>]*?(\/?)>/g;
-  const stack: string[] = [];
-  const open = new Map<string, number>();
-  let m: RegExpExecArray | null;
-  while ((m = tag.exec(html))) {
-    if (!m[2]) continue; // a comment
-    const name = m[2].toLowerCase();
-    if (VOID_TAGS.has(name) || IMPLIED_END.has(name) || m[3]) continue;
-    if (m[1]) {
-      if (!open.get(name)) continue;
-      while (stack.length) {
-        const top = stack.pop()!;
-        open.set(top, open.get(top)! - 1);
-        if (top === name) break;
-      }
-      continue;
-    }
-    if (RAW_TEXT.has(name)) {
-      const close = RAW_END[name]!;
-      close.lastIndex = tag.lastIndex;
-      if (!close.exec(html)) return; // unterminated: the rest of the page is text
-      tag.lastIndex = close.lastIndex - `</${name}`.length; // resume at the close tag
-      continue;
-    }
-    stack.push(name);
-    open.set(name, (open.get(name) ?? 0) + 1);
-    if (stack.length > MAX_HTML_DEPTH) throw new ProxyError(413, `Page is nested too deeply to read (over ${MAX_HTML_DEPTH} levels)`);
-  }
-}
+const parse = (html: string) => parseHTML(html).document as unknown as Document;
 
 export function renderPage(html: string, finalUrl: string, want: PageMode): Page {
   const doc = parse(html);

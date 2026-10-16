@@ -25,16 +25,6 @@ const get = (url: string, d: Deps, as?: string) =>
   call(`/v1/get?url=${encodeURIComponent(url)}${as ? `&as=${as}` : ""}`, d);
 const ASCII = /^[\t\n\x20-\x7e]*$/;
 
-describe("nesting cap", () => {
-  it("answers 413 text/plain for a page nested too deeply", async () => {
-    const d = deps({ "https://example.com/": html(`<html><body>${"<div>".repeat(600)}</body></html>`) });
-    const res = await get("https://example.com/", d.deps);
-    expect(res.status).toBe(413);
-    expect(res.headers.get("Content-Type")).toContain("text/plain");
-    expect(await res.text()).toBe("Page is nested too deeply to read (over 512 levels)\n");
-  });
-});
-
 describe("routing and auth", () => {
   it("answers ping with the token", async () => {
     const res = await call("/v1/ping", deps().deps);

@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { ProxyError } from "../src/errors";
 import { LONG_ARTICLE_CHARS, MIN_COVERAGE, type Page, discoverFeed, prepareForReader, renderPage } from "../src/page";
 import { articleHtml } from "./helpers/pages";
 import { HOSTILE_BYTES, msToRun } from "./helpers/timing";
@@ -155,72 +154,28 @@ describe("hostile input (about 1 MB in under 1 s)", () => {
     expect(document.querySelectorAll("body > div > h2").length).toBeGreaterThan(50_000);
   });
 
-  // Nesting is capped at MAX_HTML_DEPTH (512) before parsing, and linkedom's parser is still
-  // quadratic below that, so the hostile megabyte is many chains, each 400 deep (past the
-  // reader limit of 300, so the page is rendered in full mode).
-  it("renderPage on many chains of divs, each nested 400 deep", () => {
-    const chain = `<div>${"<div>".repeat(399)}<p>deep text</p>${"</div>".repeat(400)}</div>`;
+  // The HTML parser is linear in nesting depth (proxy/patches), so the hostile megabyte is 45
+  // chains, each 2000 deep; the reader limit of 300 sends the page to the flattened full mode.
+  it("renderPage on 45 chains of divs, each nested 2000 deep", () => {
+    const chain = `<div>${"<div>".repeat(2000)}<p>deep text</p>${"</div>".repeat(2000)}</div>`;
     const html = `<html><head><title>D</title></head><body>${chain.repeat(Math.ceil(HOSTILE_BYTES / chain.length))}</body></html>`;
     let page: Page | null = null;
-    expect(msToRun(() => (page = renderPage(html, URL_, "reader")))).toBeLessThan(2000);
+    expect(msToRun(() => (page = renderPage(html, URL_, "reader")))).toBeLessThan(1000);
     expect(page!.mode).toBe("full");
     expect(page!.gemtext).toContain("deep text");
   });
-});
 
-describe("nesting cap (413 before parsing)", () => {
-  const MESSAGE = "Page is nested too deeply to read (over 512 levels)";
-  const FIVE_MB = 5 * 1024 * 1024;
-  const wrap = (body: string) => `<html><head><title>N</title></head><body>${body}</body></html>`;
-  const shapes: [string, string][] = [
-    ["div", "<div>"],
-    ["span", "<span>"],
-    ["table", "<table><tr><td>"],
-  ];
-
-  it.each(shapes)("renderPage and discoverFeed refuse 600 nested %s", (_n, unit) => {
-    const html = wrap(unit.repeat(600));
-    for (const run of [() => renderPage(html, URL_, "reader"), () => renderPage(html, URL_, "full"), () => discoverFeed(html, URL_)]) {
-      let err: unknown;
-      try {
-        run();
-      } catch (e) {
-        err = e;
-      }
-      expect(err).toBeInstanceOf(ProxyError);
-      expect((err as ProxyError).status).toBe(413);
-      expect((err as ProxyError).message).toBe(MESSAGE);
-    }
+  it("renderPage on one chain of 100,000 nested divs renders in full mode", () => {
+    const html = `<html><head><title>D</title></head><body>${"<div>".repeat(100_000)}<p>bottom</p></body></html>`;
+    let page: Page | null = null;
+    expect(msToRun(() => (page = renderPage(html, URL_, "reader")))).toBeLessThan(3000);
+    expect(page!.mode).toBe("full");
+    expect(page!.gemtext).toContain("bottom");
   });
 
-  it.each(shapes)("refuses 5 MB of nested %s quickly", (_n, unit) => {
-    const html = wrap(unit.repeat(Math.floor(FIVE_MB / unit.length)));
-    expect(msToRun(() => expect(() => renderPage(html, URL_, "reader")).toThrow(ProxyError))).toBeLessThan(1000);
-    expect(msToRun(() => expect(() => discoverFeed(html, URL_)).toThrow(ProxyError))).toBeLessThan(1000);
-  });
-
-  it("renders a page nested 100 deep", () => {
-    const page = renderPage(wrap(`${"<div>".repeat(100)}<p>fine</p>${"</div>".repeat(100)}`), URL_, "reader");
-    expect(page.gemtext).toContain("fine");
-  });
-
-  it.each([
-    ["<p>", "p"],
-    ["<li>", "li"],
-    ["<td>", "td"],
-  ])("does not count 5,000 unclosed %s", (unit) => {
-    const inner = unit === "<td>" ? `<table><tr>${"<td>x".repeat(5000)}</table>` : unit === "<li>" ? `<ul>${"<li>x".repeat(5000)}</ul>` : "<p>x".repeat(5000);
-    expect(() => renderPage(wrap(inner), URL_, "full")).not.toThrow();
-  });
-
-  it("ignores tags inside comments, scripts and styles, void and self-closing tags", () => {
-    const noise = `<!-- ${"<div>".repeat(1000)} --><script>var s="${"<div>".repeat(1000)}";</script><style>/* ${"<div>".repeat(1000)} */</style>${"<br>".repeat(1000)}${"<span/>".repeat(1000)}`;
-    expect(renderPage(wrap(`${noise}<p>ok</p>`), URL_, "full").gemtext).toContain("ok");
-  });
-
-  it("pops a close tag back to its match", () => {
-    const page = renderPage(wrap(`${"<div><b></div>".repeat(2000)}<p>ok</p>`), URL_, "full");
-    expect(page.gemtext).toContain("ok");
+  it("discoverFeed on 100,000 nested divs is fast", () => {
+    const html = `<html><head><link rel="alternate" type="application/rss+xml" href="/f.xml"></head><body>${"<div>".repeat(100_000)}</body></html>`;
+    expect(msToRun(() => expect(discoverFeed(html, URL_)).toBe("https://example.com/f.xml"))).toBeLessThan(3000);
   });
 });
 
