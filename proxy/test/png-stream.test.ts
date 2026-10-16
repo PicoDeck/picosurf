@@ -120,6 +120,14 @@ async function expectLikeSharp(png: Uint8Array, width: number, height: number) {
 }
 
 describe("streamPng", () => {
+  it("fits a non-square box, never enlarging", async () => {
+    const wide = encodePng(raw(400, 100, 2));
+    expect(await streamPng(wide, { width: 100, height: 50 })).toMatchObject({ width: 100, height: 25 });
+    expect(await streamPng(wide, { width: 300, height: 30 })).toMatchObject({ width: 120, height: 30 });
+    expect(await streamPng(wide)).toMatchObject({ width: 320, height: 80 });
+    expect(await streamPng(encodePng(raw(40, 20, 2)), { width: 312, height: 126 })).toMatchObject({ width: 40, height: 20 });
+  });
+
   it.each([
     ["grey (0)", raw(1013, 517, 0)],
     ["grey with a tRNS key (0)", raw(640, 480, 0, { trns: Uint8Array.of(0, 128) })],

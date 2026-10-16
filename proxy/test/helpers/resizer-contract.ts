@@ -18,7 +18,18 @@ const CASES: [string, ImageType, number, number][] = [
   ["small.png", "png", 200, 100],
 ];
 
-/** Every Resizer must pass these: baseline JPEG, within 320x320, never enlarged, transparency on white. */
+/** The box PicoSurf asks for inline pictures (fit=312x126). */
+const BOX = { width: 312, height: 126 };
+const BOX_CASES: [string, ImageType, number, number][] = [
+  ["photo.jpg", "jpeg", 168, 126],
+  ["photo-progressive.jpg", "jpeg", 168, 126],
+  ["photo.png", "png", 168, 126],
+  ["photo.webp", "webp", 168, 126],
+  ["photo.gif", "gif", 168, 126],
+  ["small.png", "png", 200, 100],
+];
+
+/** Every Resizer must pass these: baseline JPEG, within 320x320 or the box given, never enlarged, transparency on white. */
 export function resizerContract(name: string, make: () => Promise<Resizer>): void {
   describe(`${name} resizer`, () => {
     let resizer: Resizer;
@@ -35,6 +46,14 @@ export function resizerContract(name: string, make: () => Promise<Resizer>): voi
       const info = jpegInfo(out);
       expect(info?.sof).toBe(0xc0);
       expect(info?.size).toEqual({ width, height });
+    });
+
+    it.each(BOX_CASES)("%s (%s) in a 312x126 box → baseline JPEG %dx%d, under 32 KB", async (file, type, width, height) => {
+      const out = await resizer.resize(imageFixture(file), type, BOX);
+      const info = jpegInfo(out);
+      expect(info?.sof).toBe(0xc0);
+      expect(info?.size).toEqual({ width, height });
+      expect(out.length).toBeLessThan(32 * 1024); // the app keeps 512 KB of these per page
     });
 
     it.each(["photo.png", "photo-alpha.webp"] as const)("flattens transparency in %s onto white", async (file) => {

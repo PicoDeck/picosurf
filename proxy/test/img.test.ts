@@ -54,6 +54,11 @@ describe("fitWithin", () => {
   it.each([
     [800, 600, 320, 240], [600, 800, 240, 320], [200, 100, 200, 100], [5000, 10, 320, 1], [320, 320, 320, 320],
   ])("%dx%d → %dx%d", (w, h, ew, eh) => expect(fitWithin(w, h)).toEqual({ width: ew, height: eh }));
+
+  it.each([
+    [800, 600, 168, 126], [600, 800, 95, 126], [200, 100, 200, 100], [1000, 100, 312, 31], [312, 126, 312, 126],
+  ])("%dx%d within 312x126 → %dx%d", (w, h, ew, eh) =>
+    expect(fitWithin(w, h, { width: 312, height: 126 })).toEqual({ width: ew, height: eh }));
 });
 
 resizerContract("sharp", async () => createSharpResizer());

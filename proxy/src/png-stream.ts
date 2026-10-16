@@ -7,7 +7,8 @@
 // them, with tRNS, interlaced (Adam7) or not.
 
 import { BoxScaler, type Rgba } from "./boxscale";
-import { MAX_SIDE, fitWithin } from "./img";
+import { DEFAULT_BOX, fitWithin } from "./img";
+import type { Size } from "./imgsize";
 import { inflate } from "./inflate";
 
 const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -90,13 +91,13 @@ function supported(h: Header): boolean {
 }
 
 /**
- * Decodes a PNG that `canStreamPng` takes and scales it to fit `max` x `max`
+ * Decodes a PNG that `canStreamPng` takes and scales it to fit `box`
  * (composited over white, as BoxScaler does). Throws on anything malformed:
  * truncation, a bad CRC on a critical chunk, corrupt image data, too few rows.
  */
-export async function streamPng(bytes: Uint8Array, max = MAX_SIDE): Promise<Rgba> {
+export async function streamPng(bytes: Uint8Array, box: Size = DEFAULT_BOX): Promise<Rgba> {
   const png = parse(bytes);
-  const scaler = new BoxScaler(png.width, png.height, fitWithin(png.width, png.height, max));
+  const scaler = new BoxScaler(png.width, png.height, fitWithin(png.width, png.height, box));
   const rows = new Rows(png, scaler);
   // Stops at the last row, or at the end of the zlib stream: like libpng, a
   // bad Adler-32 or anything after the stream is ignored.

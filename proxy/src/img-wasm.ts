@@ -13,7 +13,7 @@ import { GifReader } from "omggif";
 import { type Rgba, boxScale } from "./boxscale";
 import type { ImageType } from "./content";
 import { ProxyError } from "./errors";
-import { JPEG_QUALITY, type Resizer, fitWithin } from "./img";
+import { DEFAULT_BOX, JPEG_QUALITY, type Resizer, fitWithin } from "./img";
 import { type Size, imageSize, jpegInfo, jpegScans } from "./imgsize";
 import { Mutex } from "./mutex";
 import { PNG_MAX_SIDE, streamPng } from "./png-stream";
@@ -190,7 +190,7 @@ interface JpegEncoder {
 const ENCODE = { ...JPEG_ENCODER_DEFAULTS, quality: JPEG_QUALITY, baseline: true, progressive: false };
 
 export function createWasmResizer(mods: WasmModules): Resizer {
-  // Made on first use; the encoder only ever sees 320x320 images.
+  // Made on first use; the encoder only ever sees images within 320x320.
   const encoder = new Emscripten<JpegEncoder>(mozjpegEnc, mods.jpegEnc);
   const decoders: Decoders = {
     jpeg: new HeapDecoder(mozjpegDec, mods.jpegDec, false), // false: ignore EXIF orientation, as jSquash does
@@ -207,10 +207,10 @@ export function createWasmResizer(mods: WasmModules): Resizer {
       }
       return WASM_MAX_PIXELS;
     },
-    async resize(bytes, type) {
+    async resize(bytes, type, box = DEFAULT_BOX) {
       if (type === "jpeg") refuseJpeg(bytes);
       return jobs.run(async () => {
-        const scaled = await decodeScaled(bytes, type, decoders);
+        const scaled = await decodeScaled(bytes, type, decoders, box);
         const jpeg = await encoder.get();
         try {
           return jpeg.encode(scaled.data, scaled.width, scaled.height, ENCODE);
@@ -230,8 +230,8 @@ interface Decoders {
 
 const RealUint8ClampedArray = Uint8ClampedArray;
 
-/** What the current HeapDecoder.decode() expects, and what its PixelSink made of the pixels. */
-let pending: { size: Size; scaled: Rgba | null } | null = null;
+/** What the current HeapDecoder.decode() expects, the box to fit, and what its PixelSink made of the pixels. */
+let pending: { size: Size; box: Size; scaled: Rgba | null } | null = null;
 
 /**
  * Stands in for Uint8ClampedArray inside the emscripten decoders, which call
@@ -243,7 +243,7 @@ let pending: { size: Size; scaled: Rgba | null } | null = null;
 function PixelSink(this: unknown, view: Uint8Array): Uint8ClampedArray {
   const p = pending;
   if (p && !p.scaled && view.length === p.size.width * p.size.height * 4) {
-    p.scaled = boxScale(view, p.size.width, p.size.height, fitWithin(p.size.width, p.size.height));
+    p.scaled = boxScale(view, p.size.width, p.size.height, fitWithin(p.size.width, p.size.height, p.box));
     return new RealUint8ClampedArray(0);
   }
   return new RealUint8ClampedArray(view);
@@ -309,14 +309,14 @@ export class HeapDecoder {
     this.options = options;
   }
 
-  /** Decodes an image whose header gave `size`, scaled to fit 320x320. */
-  async decode(bytes: Uint8Array, size: Size): Promise<Rgba> {
+  /** Decodes an image whose header gave `size`, scaled to fit `box`. */
+  async decode(bytes: Uint8Array, size: Size, box: Size = DEFAULT_BOX): Promise<Rgba> {
     this.dropped = this.dropped.filter((ref) => ref.deref() !== undefined);
     if (this.dropped.length >= MAX_DROPPED_DECODERS) {
       throw new ProxyError(503, "Busy after broken images, try again in a minute", { "Retry-After": "60" });
     }
     const codec = await this.codec.get();
-    const wanted = { size, scaled: null as Rgba | null };
+    const wanted = { size, box, scaled: null as Rgba | null };
     let image: DecodedImage | null;
     pending = wanted;
     try {
@@ -333,7 +333,7 @@ export class HeapDecoder {
     if (!image) throw new Error("Decoding error");
     if (wanted.scaled) return wanted.scaled;
     // Not the size the header gave: PixelSink copied them, so scale the copy.
-    return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height));
+    return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height, box));
   }
 
   /** Runs a decode with PixelSink and DecodedImage in place of the globals, and notes whether the instance kept them. */
@@ -355,16 +355,16 @@ export class HeapDecoder {
   }
 }
 
-/** Decodes and scales to fit 320x320: PNGs stream, JPEG and WebP scale in their decoder, GIFs decode whole first. */
-async function decodeScaled(bytes: Uint8Array, type: ImageType, decoders: Decoders): Promise<Rgba> {
-  if (type === "png") return streamPng(bytes);
+/** Decodes and scales to fit `box`: PNGs stream, JPEG and WebP scale in their decoder, GIFs decode whole first. */
+async function decodeScaled(bytes: Uint8Array, type: ImageType, decoders: Decoders, box: Size): Promise<Rgba> {
+  if (type === "png") return streamPng(bytes, box);
   if (type === "gif") {
     const image = decodeGif(bytes);
-    return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height));
+    return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height, box));
   }
   const size = imageSize(bytes, type);
   if (!size) throw new Error("Could not read the image size");
-  return decoders[type].decode(bytes, size);
+  return decoders[type].decode(bytes, size, box);
 }
 
 /** The first frame of a GIF, whole. */
