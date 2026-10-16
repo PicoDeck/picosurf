@@ -72,9 +72,19 @@ describe("wasm resizer codec instances", () => {
     expect(created).toEqual([]);
   });
 
+  it("keeps the WebP decoder when a WebP is refused (libwebp returns nothing for a broken file)", async () => {
+    const webp = imageFixture("photo.webp");
+    await resizer.resize(webp, "webp");
+    created.length = 0;
+    await expect(resizer.resize(webp.slice(0, webp.length >> 1), "webp")).rejects.toThrow();
+    await resizer.resize(webp, "webp");
+    expect(count().webpDec).toBe(0);
+  });
+
   it("creates the WebP decoder only for WebP, once", async () => {
-    await resizer.resize(imageFixture("photo.webp"), "webp");
-    await resizer.resize(imageFixture("photo-alpha.webp"), "webp");
-    expect(count()).toEqual({ jpegDec: 0, jpegEnc: 0, webpDec: 1 });
+    const fresh = createWasmResizer(mods);
+    await fresh.resize(imageFixture("photo.webp"), "webp");
+    await fresh.resize(imageFixture("photo-alpha.webp"), "webp");
+    expect(count()).toEqual({ jpegDec: 0, jpegEnc: 1, webpDec: 1 });
   });
 });

@@ -256,26 +256,50 @@ class DecodedImage {
 }
 
 /**
+ * Instances that kept PixelSink and DecodedImage: embind looked them up at the
+ * instance's first decode that produced an image. Per instance, so a new one
+ * is always bound, whatever happened to the one before.
+ */
+const bound = new WeakSet<object>();
+
+/**
+ * Dropped instances an isolate may hold uncollected, per codec, before that
+ * codec refuses images with 503. Each holds its heap (16 MiB or more) until
+ * the garbage collector reaches it, which workerd may not do for a long
+ * while: eight dropped JPEG decoders left 144-184 MiB.
+ */
+export const MAX_DROPPED_DECODERS = 2;
+
+/**
  * An emscripten decoder (mozjpeg, libwebp) kept for the life of the isolate,
  * which scales each image straight out of its WASM heap.
  *
  * One instance, reused: WASM memory never shrinks and is freed only when the
  * garbage collector gets to the instance, which workerd may not do for many
  * requests (ten 8 MP JPEGs with a fresh instance each left 600 MiB). The one
- * heap stays at its high-water mark instead, which the pixel cap bounds. An
- * instance whose decode failed (mozjpeg aborts on CMYK) may be broken, so it
- * is dropped and the next image gets a new one.
+ * heap stays at its high-water mark instead, which the pixel cap bounds.
+ *
+ * A decode that throws (mozjpeg calls exit() on a fatal error, leaving its
+ * stack and heap as they were) costs the instance: the next image gets a new
+ * one. The dropped ones are counted until collected, and while
+ * MAX_DROPPED_DECODERS are, images of this codec get 503. A decoder that
+ * returns no image (libwebp on a broken file) refused cleanly and is kept.
  *
  * No copy of the pixels: jSquash's C++ returns
  * `ImageData(Uint8ClampedArray(typed_memory_view(pixels)), w, h)`, a full RGBA
- * copy out of the heap. embind looks both names up on globalThis at an
- * instance's first decode and keeps what it finds, so for that one call they
- * are PixelSink and DecodedImage, and stay so for that instance.
+ * copy out of the heap. embind looks both names up on globalThis when an
+ * instance first gets that far and keeps what it finds, so until then each
+ * decode runs with PixelSink and DecodedImage in their place.
  */
 export class HeapDecoder {
   private readonly codec: Emscripten<{ decode(data: Uint8Array, ...options: unknown[]): unknown }>;
   private readonly options: unknown[];
-  private bound = false;
+  /**
+   * Instances dropped after a failed decode, until the garbage collector frees
+   * them. WeakRefs rather than a FinalizationRegistry: they clear with the
+   * collection itself, while workerd need not run finalization callbacks.
+   */
+  private dropped: { deref(): object | undefined }[] = [];
 
   constructor(factory: unknown, module: WebAssembly.Module, ...options: unknown[]) {
     this.codec = new Emscripten(factory, module);
@@ -284,34 +308,41 @@ export class HeapDecoder {
 
   /** Decodes an image whose header gave `size`, scaled to fit 320x320. */
   async decode(bytes: Uint8Array, size: Size): Promise<Rgba> {
+    this.dropped = this.dropped.filter((ref) => ref.deref() !== undefined);
+    if (this.dropped.length >= MAX_DROPPED_DECODERS) {
+      throw new ProxyError(503, "Busy after broken images, try again in a minute", { "Retry-After": "60" });
+    }
     const codec = await this.codec.get();
-    pending = { size, scaled: null };
+    const wanted = { size, scaled: null as Rgba | null };
+    let image: DecodedImage | null;
+    pending = wanted;
     try {
       const decode = () => codec.decode(bytes, ...this.options) as DecodedImage | null;
-      const image = this.bound ? decode() : this.bind(decode);
-      if (!image) throw new Error("Decoding error");
-      if (pending.scaled) return pending.scaled;
-      // Not the size the header gave: PixelSink copied them, so scale the copy.
-      return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height));
+      image = bound.has(codec) ? decode() : this.bind(codec, decode);
     } catch (e) {
       this.codec.drop();
-      this.bound = false;
+      // Without WeakRef (never on Workers or Node 22) a dropped instance counts for good.
+      this.dropped.push(typeof WeakRef === "function" ? new WeakRef(codec) : { deref: () => codec });
       throw e;
     } finally {
       pending = null;
     }
+    if (!image) throw new Error("Decoding error");
+    if (wanted.scaled) return wanted.scaled;
+    // Not the size the header gave: PixelSink copied them, so scale the copy.
+    return boxScale(image.data, image.width, image.height, fitWithin(image.width, image.height));
   }
 
-  /** Runs an instance's first decode with PixelSink and DecodedImage in place of the globals. */
-  private bind<T>(decode: () => T): T {
+  /** Runs a decode with PixelSink and DecodedImage in place of the globals, and notes whether the instance kept them. */
+  private bind<T>(codec: object, decode: () => T): T {
     const g = globalThis as Record<string, unknown>;
     const hadImageData = "ImageData" in g;
     const saved = [g.Uint8ClampedArray, g.ImageData];
-    g.Uint8ClampedArray = PixelSink;
-    g.ImageData = DecodedImage;
     try {
+      g.Uint8ClampedArray = PixelSink;
+      g.ImageData = DecodedImage;
       const image = decode();
-      this.bound = true;
+      if (image instanceof DecodedImage) bound.add(codec);
       return image;
     } finally {
       g.Uint8ClampedArray = saved[0];

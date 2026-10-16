@@ -3,13 +3,26 @@
 // code: it looks Uint8ClampedArray and ImageData up on globalThis at its first
 // decode and keeps them.
 
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import sharp, { type Sharp } from "sharp";
 import { boxScale } from "../src/boxscale";
 import { fitWithin } from "../src/img";
+import { ProxyError } from "../src/errors";
 import { HeapDecoder, createWasmResizer } from "../src/img-wasm";
 import { photo } from "./helpers/png";
 import { wasmModules } from "./helpers/wasm";
+
+/** Runs a full garbage collection (vitest gives no --expose-gc) and lets weak references clear. */
+async function collectGarbage(): Promise<void> {
+  setFlagsFromString("--expose-gc");
+  const gc = runInNewContext("gc") as () => void;
+  for (let i = 0; i < 3; i++) {
+    await new Promise((r) => setTimeout(r, 0));
+    gc();
+  }
+}
 
 const EMPTY = new WebAssembly.Module(Uint8Array.of(0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00));
 type Ctor = new (...args: unknown[]) => { length?: number };
@@ -78,6 +91,54 @@ describe("HeapDecoder", () => {
     const img = pixels(30, 20);
     const out = await new HeapDecoder(fakeCodec(() => img).factory, EMPTY).decode(new Uint8Array(1), { width: 31, height: 20 });
     expect(out).toEqual(boxScale(img.view, 30, 20, fitWithin(30, 20)));
+  });
+
+  it("keeps an instance that returned no image (a clean refusal, as libwebp gives on a bad file)", async () => {
+    let refuse = true;
+    const { factory, seen } = fakeCodec(() => pixels(10, 10));
+    const decoder = new HeapDecoder(async () => {
+      const codec = (await factory()) as { decode(b: Uint8Array): unknown };
+      return { decode: (b: Uint8Array) => (refuse ? null : codec.decode(b)) };
+    }, EMPTY);
+    await expect(decoder.decode(new Uint8Array(1), { width: 10, height: 10 })).rejects.toThrow("Decoding error");
+    refuse = false;
+    const out = await decoder.decode(new Uint8Array(1), { width: 10, height: 10 });
+    expect(seen.instances).toBe(1);
+    // An instance that has not yet looked the constructors up is bound at its next decode.
+    expect(seen.boundArray).not.toBe(Uint8ClampedArray);
+    expect(out).toEqual(boxScale(pixels(10, 10).view, 10, 10, { width: 10, height: 10 }));
+  });
+
+  it("restores Uint8ClampedArray when putting the stand-ins in place fails", async () => {
+    const before = globalThis.Uint8ClampedArray;
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "ImageData");
+    Object.defineProperty(globalThis, "ImageData", { value: undefined, writable: false, configurable: true });
+    try {
+      await expect(new HeapDecoder(fakeCodec(() => pixels(10, 10)).factory, EMPTY).decode(new Uint8Array(1), { width: 10, height: 10 })).rejects.toThrow();
+      expect(globalThis.Uint8ClampedArray).toBe(before);
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, "ImageData", descriptor);
+      else delete (globalThis as { ImageData?: unknown }).ImageData;
+    }
+  });
+
+  it("refuses with 503 while two dropped instances are uncollected, and decodes again once they are collected", async () => {
+    let fail = true;
+    const { factory, seen } = fakeCodec(() => {
+      // What mozjpeg throws when it calls exit(): emscripten's ExitStatus, which carries no stack.
+      if (fail) throw { name: "ExitStatus", message: "Program terminated with exit(1)", status: 1 };
+      return pixels(10, 10);
+    });
+    const decoder = new HeapDecoder(factory, EMPTY);
+    for (let i = 0; i < 2; i++) await expect(decoder.decode(new Uint8Array(1), { width: 10, height: 10 })).rejects.toMatchObject({ status: 1 });
+    fail = false;
+    const busy = await decoder.decode(new Uint8Array(1), { width: 10, height: 10 }).catch((e: unknown) => e);
+    expect(busy).toBeInstanceOf(ProxyError);
+    expect((busy as ProxyError).status).toBe(503);
+    expect(seen.instances).toBe(2); // no third instance while two are uncollected
+    await collectGarbage();
+    await decoder.decode(new Uint8Array(1), { width: 10, height: 10 });
+    expect(seen.instances).toBe(3);
   });
 
   it("drops an instance whose decode failed, and makes a new one for the next image", async () => {
