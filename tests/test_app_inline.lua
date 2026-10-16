@@ -381,6 +381,47 @@ return {
         d = drawOf(F, "JPEG:312x126")
         T.eq(d.x, 4); T.eq(d.y, 283); T.eq(d.src.y, 0); T.eq(d.src.h, 11)
     end,
+    page_drawing_stays_between_title_bar_and_footer = function()
+        local app, F = boot({ images = "inline" })
+        go(app, F, "pics.test/")
+        for _ = 1, 4 do F.press("right"); steps(app, 3) end
+        T.eq(boxRows(app, 3), 5, "all three pictures loaded")
+        local p = app.page
+        local L, ps, st = p.L, p.ps, p.inline
+        -- Every scroll position with every link selected (and none): each fill
+        -- and picture lies within y 21 to 294, the page's 21 rows. Returns how
+        -- many fills and pictures were drawn.
+        local function sweep(what)
+            local rects, pictures = 0, 0
+            for top = 1, ps:maxTop() do
+                for sel = 0, #L.links do
+                    ps.top, ps.sel = top, sel > 0 and sel or nil
+                    app.disp.clear(app.theme.bg)
+                    app.screen.draw(app)
+                    local at = what .. ", top " .. top .. ", sel " .. sel
+                    for _, r in ipairs(F.rects) do
+                        T.ok(r.h > 0 and r.y >= 21 and r.y + r.h <= 294,
+                            "rect at y " .. r.y .. " h " .. r.h .. ": " .. at)
+                    end
+                    for _, d in ipairs(F.imageDraws) do
+                        T.ok(d.src.h > 0 and d.y >= 21 and d.y + d.src.h <= 294,
+                            "picture at y " .. d.y .. " h " .. d.src.h .. ": " .. at)
+                    end
+                    rects, pictures = rects + #F.rects, pictures + #F.imageDraws
+                end
+            end
+            return rects, pictures
+        end
+        for _, e in pairs(st.byUrl) do e.img = e.img or F.pc.graphics.image.loadFromBuffer(e.bytes) end
+        local rects, pictures = sweep("in memory")
+        T.ok(rects > 0 and pictures > 0)
+        for _, e in pairs(st.byUrl) do e.img = nil end -- dropped: outlines of the pictures' sizes
+        rects, pictures = sweep("dropped")
+        T.ok(rects > 0); T.eq(pictures, 0)
+        st.byUrl = {} -- not fetched yet, as after Back: outlines of the boxes
+        rects, pictures = sweep("not fetched")
+        T.ok(rects > 0); T.eq(pictures, 0)
+    end,
     a_picture_not_in_memory_shows_an_outline_and_its_label = function()
         local app, F = boot({ images = "inline" })
         go(app, F, "pics.test/")
