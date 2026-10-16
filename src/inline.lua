@@ -7,16 +7,18 @@ local url = require("src.url")
 local M = {}
 M.__index = M
 
--- A box is at most ROWS rows; its picture has PAD px above and below it and
--- fits FIT_W (the page width less its margins) by FIT_H: ten 13 px rows less
--- the padding. On 14 px rows (Sans) the same pictures take at most 10 rows.
-M.ROWS, M.PAD = 10, 2
+-- A box's picture has PAD px above and below it and fits FIT_W (the page
+-- width less its margins) by FIT_H: ten 13 px rows less the padding. So a box
+-- is at most 10 rows, on 13 px rows or on 14 px (Sans).
+M.PAD = 2
 M.FIT_W, M.FIT_H = 312, 126
 M.FIT = M.FIT_W .. "x" .. M.FIT_H
 M.BYTES_CAP = 512 * 1024
 M.RETRY_MS = 3000
 
--- boxes: {[k] = picture height in px} for image links already laid out as boxes (Back, Reload), or nil. wake: something may have changed since the last pass.
+-- boxes: {[k] = picture height in px} for image links already laid out as
+-- boxes (Back, Reload), or nil. wake: something may have changed since the
+-- last pass.
 function M.new(boxes)
     return setmetatable({ boxes = boxes or {}, byUrl = {}, lru = {}, bytesTotal = 0, wake = true }, M)
 end

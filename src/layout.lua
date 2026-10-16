@@ -72,9 +72,10 @@ end
 
 local ROW_FIELDS = { "line", "s", "e", "style", "link", "cont" }
 
--- Lays link k out as `rows` BOX rows in place, as build would with
--- boxes[k] = rows: the rows after it move, later links' rows shift and the
--- count changes. Returns that change (negative when the box shrank).
+-- Lays link k out as `rows` BOX rows in place, as build would when the
+-- height in boxes[k] makes a box of `rows` rows: the rows after it move,
+-- later links' rows shift and the count changes. Returns that change
+-- (negative when the box shrank).
 function M.setBox(L, k, rows)
     local link = L.links[k]
     local first, last, count = link.first, link.last, L.count
