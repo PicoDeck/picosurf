@@ -130,6 +130,12 @@ local function hasRect(F, x, y, w, h)
     return false
 end
 
+-- Settings, then the Images row (the fourth): switches it; Esc back to the page.
+local function toggleImages(app, F)
+    F.menu["Settings"](); steps(app, 1)
+    F.press("down"); F.press("down"); F.press("down"); F.press("enter"); steps(app, 1)
+end
+
 return {
     pictures_load_in_order_and_grow_their_boxes = function()
         local app, F = boot({ images = "inline" })
@@ -343,5 +349,60 @@ return {
         T.ok(hasText(F, "[IMG] one"), "the label in the box's first row")
         T.ok(hasRect(F, 60, 49, 200, 1), "the top of a 200x100 outline")
         T.ok(hasRect(F, 60, 49, 1, 100), "its left side")
+    end,
+    images_setting_switches_and_applies_to_the_page = function() -- Review Focus 5
+        local app, F = boot()
+        go(app, F, "pics.test/")
+        T.eq(#pictureRequests(F), 0)
+        F.menu["Settings"](); steps(app, 1)
+        T.ok(F.screenText():find("Images: Links", 1, true))
+        F.press("esc"); steps(app, 1)
+        toggleImages(app, F)
+        T.eq(F.config.images, "inline")
+        T.ok(F.screenText():find("Images: Inline", 1, true))
+        F.press("esc"); steps(app, 4)
+        T.eq(boxRows(app, 1), 8, "the page on screen gets its pictures")
+        app.page.ps:scroll(10); app.dirty = true; steps(app, 1)
+        local line = app.page.L.line[app.page.ps.top]
+        toggleImages(app, F)
+        T.eq(F.config.images, "links")
+        F.press("esc"); steps(app, 3)
+        T.eq(app.page.inline, nil)
+        T.eq(boxRows(app, 1), 0); T.eq(app.page.L.count, 65, "laid out again without boxes")
+        T.eq(app.page.L.line[app.page.ps.top], line, "the same line at the top")
+        local before = #pictureRequests(F)
+        steps(app, 3)
+        T.eq(#pictureRequests(F), before, "no more picture requests")
+    end,
+    back_and_reload_keep_the_boxes = function()
+        local app, F = boot({ images = "inline" })
+        go(app, F, "pics.test/")
+        steps(app, 3)
+        app.page.ps:scroll(30); app.dirty = true; steps(app, 4)
+        local top, count = app.page.ps.top, app.page.L.count
+        local line = app.page.L.line[top]
+        T.eq(top, 31); T.eq(count, 81)
+        go(app, F, "b.test/")
+        F.press("backspace"); steps(app, 1)
+        T.eq(app.page.url, "https://pics.test/")
+        T.eq(app.page.L.count, count, "the same rows"); T.eq(app.page.ps.top, top)
+        T.eq(app.page.L.line[top], line)
+        T.eq(boxRows(app, 1), 8); T.eq(boxRows(app, 2), 10)
+        steps(app, 6)
+        T.eq(app.page.ps.top, top, "pictures come back without moving the view")
+        T.eq(app.page.L.count, count)
+        F.menu["Reload"](); steps(app, 6)
+        T.eq(app.page.ps.top, top); T.eq(app.page.L.line[top], line)
+        T.eq(boxRows(app, 2), 10)
+    end,
+    a_font_change_keeps_the_boxes = function()
+        local app, F = boot({ images = "inline" })
+        go(app, F, "pics.test/")
+        steps(app, 3)
+        F.menu["Settings"](); steps(app, 1)
+        F.press("down"); F.press("down"); F.press("enter"); steps(app, 1)
+        F.press("esc"); steps(app, 1)
+        T.eq(app.theme.cw, 8)
+        T.eq(boxRows(app, 1), 8); T.eq(boxRows(app, 2), 10)
     end,
 }

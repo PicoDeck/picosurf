@@ -15,6 +15,14 @@ local App = {}
 App.__index = App
 App.MAX_BACK, App.MAX_CACHE = 20, 3
 
+-- A copy of a page's inline box rows, for a Back entry or Reload (inline images spec 5.6).
+local function copyBoxes(b)
+    if not b then return nil end
+    local c = {}
+    for k, v in pairs(b) do c[k] = v end
+    return c
+end
+
 local SCREENS = { "home", "page", "image", "settings", "loading", "message" }
 
 -- pc: the picocalc API (a fake in host tests); appId: app.json's id.
@@ -51,6 +59,21 @@ function App:saveConfig(key, value)
     self.pc.config.set(key, value)
     self.pc.config.save()
     self:loadConfig()
+end
+
+-- Settings -> Images (inline images spec 5.6): saves the choice and applies it
+-- to the page on screen. Off, the page is laid out again with link lines.
+function App:setImages(mode)
+    self:saveConfig("images", mode)
+    local p = self.page
+    if not p or p.isFeedList then return end
+    if mode == "inline" then
+        p.inline = p.inline or inline.new()
+    elseif p.inline then
+        self:cancelInline(p)
+        p.inline = nil
+        self:relayout()
+    end
 end
 
 function App:log(...)
@@ -284,12 +307,15 @@ function App:withMemoryRetry(fn)
     return nil, msg
 end
 
--- Parses and lays out a page.
+-- Parses and lays out a page. With Images set to Inline, a page restored by
+-- Back or Reload gets its boxes back, so the saved scroll position points at
+-- the same content (inline images spec 5.6).
 function App:buildPage(finalUrl, mode, r, restore)
     local cols = theme.cols(self.theme)
+    local boxes = self.cfg.images == "inline" and restore and copyBoxes(restore.boxes) or nil
     local lines, L = self:withMemoryRetry(function()
         local lines = r.kind == "text" and gemtext.fromPlain(r.body) or gemtext.parse(r.body)
-        return lines, layout.build(lines, cols)
+        return lines, layout.build(lines, cols, boxes)
     end)
     if not lines then return nil, L end
     local page = {
@@ -298,7 +324,7 @@ function App:buildPage(finalUrl, mode, r, restore)
     }
     page.ps = pagestate.new(L, theme.rows(self.theme))
     if restore then page.ps:restore(restore.top, restore.sel) end
-    if self.cfg.images == "inline" then page.inline = inline.new() end -- inline images spec 5.1
+    if self.cfg.images == "inline" then page.inline = inline.new(boxes) end
     return page
 end
 
@@ -321,7 +347,9 @@ function App:relayout()
     if not p then return end
     local old = p.ps
     local line, sel = p.L.line[old.top], old.sel
-    local L, err = self:withMemoryRetry(function() return layout.build(p.lines, theme.cols(self.theme)) end)
+    local L, err = self:withMemoryRetry(function()
+        return layout.build(p.lines, theme.cols(self.theme), p.inline and p.inline.boxes)
+    end)
     if not L then
         self.page, self.back = nil, {}
         return self:fail(err)
@@ -541,6 +569,7 @@ function App:pushBack()
     local p = self.page
     self.back[#self.back + 1] = {
         url = p.url, want = p.want, top = p.ps.top, sel = p.ps.sel, feedId = p.isFeedList and p.feedId or nil,
+        boxes = p.inline and copyBoxes(p.inline.boxes) or nil,
     }
     while #self.back > App.MAX_BACK do table.remove(self.back, 1) end
 end
@@ -548,7 +577,7 @@ end
 function App:goBack()
     local e = self.back[#self.back]
     if not e then return self:goHome() end
-    local restore = { top = e.top, sel = e.sel }
+    local restore = { top = e.top, sel = e.sel, boxes = e.boxes }
     if e.feedId then
         -- A feed list needs no network and cannot fail, so its entry goes now.
         table.remove(self.back)
@@ -587,7 +616,9 @@ function App:reload()
         return
     end
     self:cacheDrop(p.url, p.want)
-    self:open(p.url, { mode = p.want, push = false, restore = { top = p.ps.top, sel = p.ps.sel } })
+    self:open(p.url, { mode = p.want, push = false, restore = {
+        top = p.ps.top, sel = p.ps.sel, boxes = p.inline and copyBoxes(p.inline.boxes) or nil,
+    } })
 end
 
 function App:now()

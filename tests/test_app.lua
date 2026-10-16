@@ -112,11 +112,11 @@ return {
     test_connection_reports_ok_and_token_errors = function()
         local app, F = boot()
         F.menu["Settings"](); steps(app, 1)
-        F.press("down"); F.press("down"); F.press("down"); F.press("enter"); steps(app)
+        F.press("down"); F.press("down"); F.press("down"); F.press("down"); F.press("enter"); steps(app)
         T.ok(F.hasToast("Proxy OK")); T.ok(F.hasLog("picosurf: ping ok"))
         local app2, F2 = boot({ token = "other" })
         F2.menu["Settings"](); steps(app2, 1)
-        F2.press("down"); F2.press("down"); F2.press("down"); F2.press("enter"); steps(app2)
+        F2.press("down"); F2.press("down"); F2.press("down"); F2.press("down"); F2.press("enter"); steps(app2)
         T.ok(F2.hasToast("Proxy rejected the token - check Settings"))
     end,
     font_setting_switches_to_8x12 = function()

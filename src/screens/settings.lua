@@ -3,7 +3,7 @@ local wrap = require("src.wrap")
 local theme = require("src.theme")
 
 local S = {}
-local ITEMS = { "proxy", "token", "font", "test" }
+local ITEMS = { "proxy", "token", "font", "images", "test" }
 
 function S.enter(app, args)
     app.set = { sel = 1, firstRun = args.firstRun }
@@ -14,6 +14,7 @@ local function label(app, item)
     if item == "proxy" then return "Proxy URL: " .. (c.proxyUrl ~= "" and c.proxyUrl or "(not set)") end
     if item == "token" then return "Token: " .. (c.token ~= "" and ("****" .. c.token:sub(-4)) or "(not set)") end
     if item == "font" then return "Font: " .. (c.font == "8x12" and "8x12 (large)" or "Scientifica") end
+    if item == "images" then return "Images: " .. (c.images == "inline" and "Inline" or "Links") end
     return "Test connection"
 end
 
@@ -71,6 +72,8 @@ function S.key(app, action)
         elseif item == "font" then
             app:saveConfig("font", app.cfg.font == "8x12" and "scientifica" or "8x12")
             app:relayout()
+        elseif item == "images" then
+            app:setImages(app.cfg.images == "inline" and "links" or "inline")
         else
             app:ping()
         end
