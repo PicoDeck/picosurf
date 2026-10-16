@@ -3,6 +3,7 @@ local layout = require("src.layout")
 local theme = require("src.theme")
 local url = require("src.url")
 local inline = require("src.inline")
+local wrap = require("src.wrap")
 
 local S = {}
 local MODE_LETTER = { reader = "R", full = "F", feed = "L" }
@@ -33,7 +34,7 @@ end
 -- visible row and cropped to the rows between the title bar and the footer:
 -- the selection band, then the picture, or a dim outline and the label while
 -- the picture isn't in memory.
-local function drawBox(app, k, cols)
+local function drawBox(app, k)
     local th, d, p = app.theme, app.disp, app.page
     local L, ps = p.L, p.ps
     local link = L.links[k]
@@ -57,7 +58,8 @@ local function drawBox(app, k, cols)
     outline(d, x, y, w, h, th.dim, clipTop, clipBottom)
     d.setFont(th.font)
     local row = math.max(link.first, ps.top)
-    d.drawText(th.margin + th.cw, th.top + 1 + (row - ps.top) * th.rowH, link.label:sub(1, cols - 2), th.dim, false)
+    local label = wrap.fit(link.label, 320 - 2 * th.margin - 2 * th.pre.cw, th.adv)
+    d.drawText(th.margin + th.pre.cw, th.top + 1 + (row - ps.top) * th.rowH, label, th.dim, false)
 end
 
 function S.draw(app)
@@ -67,29 +69,29 @@ function S.draw(app)
     -- other apps. The title keeps to 220 px, clear of the clock and icons.
     d.setFont(th.ui)
     app.ui.drawHeader(p.title:sub(1, 220 // th.uiCw))
-    local cols = theme.cols(th)
+    local preCols = theme.preCols(th)
     for r = ps.top, ps:lastVisible() do
         local y = th.top + 1 + (r - ps.top) * th.rowH
         local st = L.style[r]
         if st == layout.BOX then
             local k = L.link[r]
-            if r == L.links[k].first or r == ps.top then drawBox(app, k, cols) end
+            if r == L.links[k].first or r == ps.top then drawBox(app, k) end
         else
             local x = th.margin
             if L.link[r] ~= 0 and L.link[r] == ps.sel then d.fillRect(0, y - 1, 320, th.rowH, th.selBg) end
             local heading = st == layout.H1 or st == layout.H2 or st == layout.H3
-            d.setFont(heading and th.bold or th.font)
+            d.setFont(st == layout.PRE and th.pre.font or (heading and th.bold or th.font))
             if st == layout.ITEM then
                 d.drawText(x, y, "*", th.dim, false)
-                x = x + 2 * th.cw
+                x = x + th.indent
             elseif st == layout.ITEMC then
-                x = x + 2 * th.cw
+                x = x + th.indent
             elseif st == layout.QUOTE then
                 d.fillRect(x, y - 1, 2, th.rowH, th.bar)
-                x = x + 2 * th.cw
+                x = x + th.indent
             end
             d.drawText(x, y, layout.rowText(L, r), rowColor(th, st), false)
-            if L.cont[r] then d.drawText(th.margin + (cols - 1) * th.cw, y, "\\", th.dim, false) end
+            if L.cont[r] then d.drawText(th.margin + preCols * th.pre.cw, y, "\\", th.dim, false) end
         end
     end
     local left = url.host(p.url)

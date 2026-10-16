@@ -38,10 +38,6 @@ function M.metrics(th)
     }
 end
 
-function M.cols(th)
-    return (320 - 2 * th.margin) // th.cw
-end
-
 -- Columns of system-font text (hints, notes, messages).
 function M.uiCols(th)
     return (320 - 2 * th.margin) // th.uiCw

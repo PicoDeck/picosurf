@@ -16,7 +16,7 @@ local KEYCODE = {
 
 function M.new()
     local F = {
-        texts = {}, textFonts = {}, logs = {}, toasts = {}, menu = {}, events = {}, inputs = {}, confirms = {},
+        texts = {}, textFonts = {}, textXs = {}, logs = {}, toasts = {}, menu = {}, events = {}, inputs = {}, confirms = {},
         requests = {}, pending = {}, config = {}, conns = 0, made = {}, decoded = {},
         rects = {}, imageDraws = {}, fontFiles = {}, missingFonts = {}, nextFontId = 4,
         netStatus = 1, synced = true, epoch = 1792000000, ms = 0,
@@ -87,11 +87,11 @@ function M.new()
         F.texts[#F.texts + 1] = t
         F.textFonts[#F.texts] = F.font
     end
-    function display.clear() F.texts, F.textFonts, F.rects, F.imageDraws = {}, {}, {}, {} end
+    function display.clear() F.texts, F.textFonts, F.rects, F.imageDraws, F.textXs = {}, {}, {}, {}, {} end
     function display.setFont(id) F.font = id end
     function display.getFont() return F.font end
     function display.fillRect(x, y, w, h, c) F.rects[#F.rects + 1] = { x = x, y = y, w = w, h = h, c = c } end
-    function display.drawText(_, _, t) record(t); return display.textWidth(t) end
+    function display.drawText(x, _, t) record(t); F.textXs[#F.texts] = x; return display.textWidth(t) end
     -- The OS draws toasts and the system menu at a flush in the current font.
     function display.flush() F.frames = (F.frames or 0) + 1; F.flushFont = F.font; F.service() end
 
