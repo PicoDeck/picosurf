@@ -253,8 +253,9 @@ implementations:
 - **Node:** sharp (`.jpeg({ progressive: false })`).
 
 Output fits within 320×320 (or the `fit` box, 5.1), keeps the aspect ratio, is
-never enlarged, and is quality 75. Images over the resizer's pixel cap are refused (413) before
-decoding. The cap is 16 megapixels with sharp. On Workers, to stay inside
+never enlarged, and is quality 75. Images over the resizer's pixel cap are
+refused (413) before decoding. The cap is 16 megapixels with sharp. On
+Workers, to stay inside
 the 128 MB isolate, it bounds each long-lived decoder heap: a JPEG may have
 as many pixels as its decode fits in 48 MiB (at most 8 megapixels; less for
 progressive JPEGs), a WebP as many as fit in 32 MiB (at most 2). PNGs may
