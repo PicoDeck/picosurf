@@ -5,7 +5,7 @@
 
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import sharp, { type Sharp } from "sharp";
 import { boxScale } from "../src/boxscale";
 import { fitWithin } from "../src/img";
@@ -13,6 +13,33 @@ import { ProxyError } from "../src/errors";
 import { HeapDecoder, createWasmResizer } from "../src/img-wasm";
 import { photo } from "./helpers/png";
 import { wasmModules } from "./helpers/wasm";
+
+/** The buffer of the pixels each boxScale call scaled, through a pass-through mock. */
+const scaled = vi.hoisted(() => ({ buffers: [] as ArrayBufferLike[] }));
+vi.mock("../src/boxscale", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../src/boxscale")>();
+  return {
+    ...orig,
+    boxScale: (...args: Parameters<typeof orig.boxScale>) => {
+      scaled.buffers.push(args[0].buffer);
+      return orig.boxScale(...args);
+    },
+  };
+});
+
+/** Each real decoder module's instances' memories. */
+const mods = wasmModules();
+const memories = new Map<WebAssembly.Module, WebAssembly.Memory[]>([
+  [mods.jpegDec, []],
+  [mods.webpDec, []],
+]);
+WebAssembly.Instance = new Proxy(WebAssembly.Instance, {
+  construct(target, args: ConstructorParameters<typeof WebAssembly.Instance>) {
+    const instance = new target(...args);
+    for (const v of Object.values(instance.exports)) if (v instanceof WebAssembly.Memory) memories.get(args[0])?.push(v);
+    return instance;
+  },
+});
 
 /** Runs a full garbage collection (vitest gives no --expose-gc) and lets weak references clear. */
 async function collectGarbage(): Promise<void> {
@@ -177,14 +204,31 @@ describe("the real decoders", () => {
     return big;
   }
 
-  it.each([
+  const cases = [
     ["an 8 MP JPEG", "jpeg", (img: Sharp) => img.jpeg()],
     ["a 2 MP WebP", "webp", (img: Sharp) => img.webp()],
-  ] as const)("make no full-size copy of %s's pixels", async (_name, type, encode) => {
+  ] as const;
+  const make = async (type: "jpeg" | "webp", encode: (img: Sharp) => Sharp) => {
     const [w, h] = type === "jpeg" ? [3264, 2448] : [1632, 1224];
-    const bytes = new Uint8Array(await encode(sharp(photo(w, h, 3), { raw: { width: w, height: h, channels: 3 } })).toBuffer());
-    const resizer = createWasmResizer(wasmModules());
+    return new Uint8Array(await encode(sharp(photo(w, h, 3), { raw: { width: w, height: h, channels: 3 } })).toBuffer());
+  };
+
+  it.each(cases)("make no full-size copy of %s's pixels", async (_name, type, encode) => {
+    const bytes = await make(type, encode);
+    const resizer = createWasmResizer(mods);
     await resizer.resize(bytes, type); // instantiates the codecs
     expect(await bigArraysDuring(() => resizer.resize(bytes, type))).toBe(0);
+  });
+
+  // The check above would pass, too, if a decoder had kept the real Uint8ClampedArray at instantiation.
+  it.each(cases)("scale %s's pixels straight from the decoder's own heap", async (_name, type, encode) => {
+    const bytes = await make(type, encode);
+    const resizer = createWasmResizer(mods);
+    await resizer.resize(bytes, type);
+    scaled.buffers.length = 0;
+    await resizer.resize(bytes, type);
+    const heaps = (memories.get(type === "jpeg" ? mods.jpegDec : mods.webpDec) ?? []).map((m) => m.buffer);
+    expect(scaled.buffers).toHaveLength(1);
+    expect(heaps).toContain(scaled.buffers[0]);
   });
 });
