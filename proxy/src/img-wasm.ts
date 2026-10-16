@@ -52,10 +52,11 @@ export const JPEG_MAX_PIXELS = 8_000_000;
 /**
  * PNGs that stream (png-stream.ts) hold a few rows, so memory does not bound
  * them (photos up to 12 MP grow under 7 MiB warm; screenshots up to 16, the
- * inflated chunks waiting for collection). CPU does, at about 15 ns a pixel,
- * and the 10 MiB body cap does not: deflate packs flat colour about 1000:1,
- * so a 10 MiB PNG can declare billions of pixels and run past the 30 s CPU
- * limit instead of getting a clear 413.
+ * inflated chunks waiting for collection). CPU does: about 15 ns a pixel,
+ * though a one-pixel-wide strip costs about 90 (each row has its overhead),
+ * so 100 MP takes 1.5 to 9 s. The 10 MiB body cap does not bound it: deflate
+ * packs flat colour about 1000:1, so a 10 MiB PNG can declare billions of
+ * pixels and would run past the 30 s CPU limit instead of getting a clear 413.
  */
 export const PNG_STREAM_MAX_PIXELS = 100_000_000;
 
