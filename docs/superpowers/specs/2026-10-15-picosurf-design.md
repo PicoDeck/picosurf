@@ -128,7 +128,7 @@ shows as is.
 | 400 | missing or malformed `url`, or a scheme other than http/https |
 | 401 | missing or wrong token (compared in constant time) |
 | 403 | the target resolves to a blocked address |
-| 413 | upstream body over the cap, an image over 16 megapixels, or an HTML page nested deeper than 512 levels (`Page is nested too deeply to read (over 512 levels)`; the HTML parser is quadratic in depth, so a linear pre-scan refuses such pages before parsing) |
+| 413 | upstream body over the cap, an image over its pixel cap (5.8), or an HTML page nested deeper than 512 levels (`Page is nested too deeply to read (over 512 levels)`; the HTML parser is quadratic in depth, so a linear pre-scan refuses such pages before parsing) |
 | 415 | unsupported content type, or no feed found |
 | 500 | `PROXY_TOKEN` not configured (fail closed; no request is served) |
 | 502 | upstream error, with the upstream status in `X-Upstream-Status`, e.g. `Site returned 404 Not Found` |
@@ -231,14 +231,21 @@ Known v1 limitation: non-Latin scripts render as `?`.
 
 A `Resizer` interface, `resize(bytes, type) → jpegBytes`, with two
 implementations:
-- **Workers:** jSquash WASM codecs (JPEG, PNG and WebP decode; resize;
-  MozJPEG encode with progressive off), plus `omggif` for the first frame of a
-  GIF. Needs no other Cloudflare product.
+- **Workers:** 8-bit, non-interlaced PNGs stream: the image data is
+  inflated with `DecompressionStream` and unfiltered one row at a time.
+  JPEG, WebP and other PNGs decode whole with jSquash WASM codecs, and JPEG
+  and WebP get a fresh decoder instance per image, because WASM memory never
+  shrinks. GIF uses `omggif` (first frame). A box filter in JS scales the
+  image down, and MozJPEG (WASM) encodes it with progressive off. An isolate
+  runs one image at a time. Needs no other Cloudflare product.
 - **Node:** sharp (`.jpeg({ progressive: false })`).
 
 Output fits within 320×320, keeps the aspect ratio, is never enlarged, and is
-quality 75. Inputs over 16 megapixels are refused (413) to stay inside the
-Worker's 128 MB memory limit.
+quality 75. Images over the resizer's pixel cap are refused (413) before
+decoding. The cap is 16 megapixels with sharp. On Workers it depends on the
+format, to stay inside the 128 MB isolate: 8 megapixels for JPEG, 100 for
+PNGs that stream (they need only a few rows of memory, so this caps CPU time),
+and 2 for other PNGs, WebP and GIF (`proxy/README.md`).
 
 Cloudflare Image Transformations (`fetch(url, { cf: { image } })`) would save
 Worker CPU but need the product enabled on a domain you own. It's a possible
@@ -258,7 +265,10 @@ proxy/
   src/ascii.ts        folding (5.6)
   src/feed.ts         RSS/Atom → feed list; feed discovery
   src/img.ts          Resizer interface; img-wasm.ts, img-sharp.ts
+  src/png-stream.ts   row-by-row PNG decoder (Workers)
+  src/boxscale.ts     box-filter downscale (Workers)
   scripts/smoke.ts    live smoke run (7.1)
+  scripts/measure-images.ts  memory of the Workers resizer, behind its caps
   test/
 ```
 
@@ -435,8 +445,8 @@ Files live in `/data/net.picodeck.picosurf/`.
   a host name that resolves to a private address.
 - `handler`: missing token, wrong token, unset `PROXY_TOKEN`, bad `url`, each
   error status in 5.3.
-- `img`: each input format gives a baseline JPEG within 320×320; over 16
-  megapixels gives 413.
+- `img`: each input format gives a baseline JPEG within 320×320; over the
+  resizer's pixel cap gives 413.
 
 **Snapshot fixtures** (committed, permissive licences only), page HTML saved
 with the expected gemtext:

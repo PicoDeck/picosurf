@@ -21,9 +21,14 @@ Reader mode needs an article of at least 500 characters. An article under 3000 c
 
 ## Image limits
 
-The two platforms resize images with different code, so their limits differ:
-- **Workers** refuses images over `WASM_MAX_PIXELS` (2,000,000 pixels) with 413. The WASM codecs need about 30 MiB per megapixel, and a Worker has 128 MB.
+The two platforms resize images with different code, so their limits differ. An image over its limit gets 413 before it is decoded.
+- **Workers** caps each format by how much memory its decoder needs, since a Worker has 128 MB:
+  - JPEG: 8,000,000 pixels (`JPEG_MAX_PIXELS`). A JPEG decodes whole, at about 8 MiB per megapixel.
+  - 8-bit, non-interlaced PNG (most PNGs): 100,000,000 pixels (`PNG_STREAM_MAX_PIXELS`). These PNGs are decoded and scaled one row at a time, so they need only a few MiB. The cap limits CPU time.
+  - Other PNGs (16-bit, under 8 bits, or interlaced), WebP and GIF: 2,000,000 pixels (`WASM_MAX_PIXELS`).
 - **Docker/Node** accepts images up to 16,000,000 pixels.
+
+The caps are in `src/img-wasm.ts`, with the measurements behind them. To measure again after changing the image code, run `npx tsx scripts/measure-images.ts`.
 
 Workers also can't decode CMYK or YCCK JPEGs: the WASM build of mozjpeg can't convert them to RGB, so they get 415. Docker/Node decodes them.
 
