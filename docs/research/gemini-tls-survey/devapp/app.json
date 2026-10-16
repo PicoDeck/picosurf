@@ -1,0 +1,8 @@
+{
+  "id": "dev.gemprobe",
+  "name": "Gem Probe",
+  "description": "Throwaway: Gemini TLS handshake survey",
+  "version": "0.0.1",
+  "author": "dev",
+  "requirements": ["http"]
+}
