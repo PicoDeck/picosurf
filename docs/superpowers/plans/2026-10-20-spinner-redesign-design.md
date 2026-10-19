@@ -33,7 +33,7 @@ at coarse frame steps.
   just vacated (motion trail). Four frames, looping.
 - Pixel scale derives from `r`: `px = max(2, (2*r + 4) / 5)` so the glyph
   roughly fills the old 2r bounding box (r=10 → 4 px cells → 20×20 glyph;
-  r=8 → 3 px; small r → 2 px minimum).
+  r=8 → 4 px; small r → 2 px minimum).
 - Rendering: `display_fill_rect` per set pixel (10 fill_rect calls per frame
   worst case). No lines, no trig, no static state — fully determined by
   `frame`, like the current implementation.
