@@ -77,9 +77,12 @@ def start_app(sim):
     return m
 
 
-def test_first_run_opens_settings(picosurf):
-    sim, _, _ = picosurf(config=False)
-    wait(sim, r"picosurf: screen settings", start_app(sim))
+def test_first_run_opens_home_with_starters(picosurf):
+    sim, _, data = picosurf(config=False)
+    wait(sim, r"picosurf: starters 6", start_app(sim))
+    wait(sim, r"picosurf: screen home", 0)
+    bookmarks = json.loads((data / "bookmarks.json").read_text())
+    assert [b["url"] for b in bookmarks][0] == "gemini://geminiprotocol.net/"
     no_lua_errors(sim)
 
 
