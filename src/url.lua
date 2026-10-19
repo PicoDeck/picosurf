@@ -15,13 +15,23 @@ function M.host(u)
     return u:match("^%a[%w+.%-]*://([^/?#:]+)") or u
 end
 
--- What the user typed, as a URL, or nil and a reason. No scheme means https.
-function M.normalize(text)
+-- What the user typed in Go, as a URL, or nil and a reason (small web spec
+-- 9.2). opts.proxy: a proxy is set, so a bare host means https:// rather
+-- than gemini://. opts.search: the search URL ("" for none); text that is not
+-- a URL or a host is searched for: %s in it replaced by the query, else the
+-- query after "%09" (gopher://) or "?".
+function M.normalize(text, opts)
+    opts = opts or {}
     local t = text:match("^%s*(.-)%s*$")
     if t == "" then return nil, "Type a URL" end
-    if t:find("%s") then return nil, "Not a URL (search isn't supported yet)" end
-    if not t:find("://", 1, true) then t = "https://" .. t end
-    return t
+    if t:find("://", 1, true) then return t end
+    if not t:find("%s") and t:find(".", 1, true) then return (opts.proxy and "https://" or "gemini://") .. t end
+    local s = opts.search or ""
+    if s == "" then return nil, "Not a URL" end
+    local q = M.encode(t)
+    if s:find("%s", 1, true) then return (s:gsub("%%s", function() return q end)) end
+    if M.scheme(s) == "gopher" then return s .. "%09" .. q end
+    return s .. "?" .. q
 end
 
 -- The proxy's base URL: {host, port, tls, prefix} or nil and a reason.

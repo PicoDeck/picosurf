@@ -90,14 +90,32 @@ local function withoutMemory(fn)
 end
 
 return {
-    first_run_opens_settings = function()
+    first_run_opens_home_with_starter_bookmarks = function()
         local app, F = boot({ config = false })
-        T.eq(app.screenName, "settings")
-        T.ok(F.screenText():find("PicoSurf proxy", 1, true))
-        T.ok(F.hasLog("picosurf: screen settings"))
+        T.eq(app.screenName, "home"); T.ok(F.hasLog("picosurf: starters 6"))
+        local b = app.store:bookmarks()
+        T.eq(#b, 6); T.eq(b[1].url, "gemini://geminiprotocol.net/"); T.eq(b[6].url, "gopher://gopher.floodgap.com/7/v2/vs")
+        T.eq(F.config.starters, "1")
+        F.menu["Settings"](); steps(app, 1)
+        T.ok(F.screenText():find("work without one", 1, true))
+    end,
+    starters_are_added_once_after_existing_bookmarks = function()
+        local F = fakepc.new()
+        F.config.proxy_url, F.config.token = "https://p.test", "tok"
+        local first = App.new(F.pc, "net.picodeck.picosurf")
+        first.store:toggleBookmark("https://mine.test/", "Mine")
+        first.store:toggleBookmark("gemini://tlgs.one/", "TLGS")
+        first:start()
+        local b = first.store:bookmarks()
+        T.eq(#b, 7, "two of mine and five starters"); T.eq(b[1].url, "gemini://tlgs.one/"); T.eq(b[2].url, "https://mine.test/")
+        first.store:removeBookmark(3)
+        local again = App.new(F.pc, "net.picodeck.picosurf")
+        again:start()
+        T.eq(#again.store:bookmarks(), 6, "a deleted starter stays deleted")
     end,
     settings_save_url_and_token_and_warn_on_http = function() -- Review Focus 5
         local app, F = boot({ config = false })
+        F.menu["Settings"](); steps(app, 1)
         F.inputs = { "http://192.168.1.5:8080/x/" }
         F.press("enter"); steps(app, 1)
         T.eq(F.config.proxy_url, "http://192.168.1.5:8080/x/")
@@ -112,11 +130,13 @@ return {
     test_connection_reports_ok_and_token_errors = function()
         local app, F = boot()
         F.menu["Settings"](); steps(app, 1)
-        F.press("down"); F.press("down"); F.press("down"); F.press("down"); F.press("enter"); steps(app)
+        for _ = 1, 5 do F.press("down") end
+        F.press("enter"); steps(app)
         T.ok(F.hasToast("Proxy OK")); T.ok(F.hasLog("picosurf: ping ok"))
         local app2, F2 = boot({ token = "other" })
         F2.menu["Settings"](); steps(app2, 1)
-        F2.press("down"); F2.press("down"); F2.press("down"); F2.press("down"); F2.press("enter"); steps(app2)
+        for _ = 1, 5 do F2.press("down") end
+        F2.press("enter"); steps(app2)
         T.ok(F2.hasToast("Proxy rejected the token - check Settings"))
     end,
     font_setting_switches_to_8x12 = function()
@@ -133,11 +153,30 @@ return {
         T.ok(F.screenText():find("[H] A", 1, true))
         T.eq(app.store:history()[1].url, "https://a.test/")
     end,
-    refuses_text_with_spaces = function()
+    searches_text_that_is_not_a_url = function()
         local app, F = boot()
+        F.tcpServers["tlgs.one:1965"] = { fp = "ff", reply = function() return "20 text/gemini\r\n# Results\n" end }
         go(app, F, "two words")
-        T.ok(F.hasToast("Not a URL (search isn't supported yet)"))
-        T.eq(app.screenName, "home")
+        T.eq(app.page.title, "Results")
+        T.eq(F.tcpMade[1].host, "tlgs.one")
+        T.eq(F.tcpMade[1].writes[1], "gemini://tlgs.one/search?two%20words\r\n")
+    end,
+    the_search_setting_changes_and_turns_off = function()
+        local app, F = boot()
+        F.menu["Settings"](); steps(app, 1)
+        T.ok(F.screenText():find("Search: tlgs.one/search", 1, true))
+        for _ = 1, 4 do F.press("down") end
+        F.inputs = { "gopher://gopher.floodgap.com/7/v2/vs" }
+        F.press("enter"); steps(app, 1)
+        T.eq(F.lastPrompt, "Search URL:"); T.eq(F.config.search, "gopher://gopher.floodgap.com/7/v2/vs")
+        T.ok(F.screenText():find("Search: gopher.floodgap.com/7/v2/vs", 1, true))
+        F.inputs = { "  " }
+        F.press("enter"); steps(app, 1)
+        T.eq(F.config.search, "off"); T.eq(app.cfg.search, "")
+        T.ok(F.screenText():find("Search: (off)", 1, true))
+        F.press("esc"); steps(app, 1)
+        go(app, F, "two words")
+        T.ok(F.hasToast("Not a URL")); T.eq(#F.tcpMade, 0)
     end,
     follows_the_selected_link_and_comes_back_from_the_cache = function()
         local app, F = boot()
@@ -529,6 +568,7 @@ return {
     end,
     fixed_texts_use_the_system_font = function() -- M16; the reading font is for pages only
         local app, F = boot({ config = false, font = "8x12" })
+        F.menu["Settings"](); steps(app, 1)
         F.inputs = { "ftp://x" }
         F.press("enter"); steps(app, 1)
         T.ok(app.baseErr)

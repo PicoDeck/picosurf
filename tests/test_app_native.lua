@@ -183,6 +183,54 @@ return {
         follow(app, F, 4)
         T.eq(app.screenName, "image"); T.eq(F.scaled[1].w, 320); T.eq(F.scaled[1].h, 160)
     end,
+    a_gemini_page_is_its_own_feed = function()
+        local app, F = boot()
+        go(app, F, "gemini://g.test/log/")
+        F.press("f5"); steps(app)
+        T.ok(F.hasLog("picosurf: subscribed 1 gemini://g.test/log/ unread=2"))
+        T.eq(app.store:feedIndex().feeds[1].title, "My log")
+        local items = app.store:feedData(1).items
+        T.eq(#items, 2); T.eq(items[1].url, "gemini://g.test/log/2.gmi"); T.eq(items[1].date, "2024-02-02")
+        T.eq(items[1].title, "Second")
+    end,
+    gemlogs_refresh_without_a_proxy_or_the_clock = function()
+        local app, F = boot({ proxy = false })
+        go(app, F, "gemini://g.test/log/")
+        F.press("f5"); steps(app)
+        F.routes["gemini://g.test/log/"] = "20 text/gemini\r\n=> 3.gmi 2024-03-03 Third\n=> 2.gmi 2024-02-02 Second\n"
+        F.synced = false
+        app:refreshAll(); steps(app)
+        T.ok(F.hasToast("Feeds refreshed")); T.eq(app.store:feedIndex().feeds[1].unread, 2)
+    end,
+    a_web_feed_without_a_proxy_fails_its_refresh = function()
+        local app, F = boot({ proxy = false })
+        require("src.feeds").subscribe(app.store:feedIndex(), "https://w.test/feed.xml", "W")
+        app:refreshAll(); steps(app)
+        T.ok(F.hasToast("1 feed failed to refresh: Web pages need a proxy - set one in Settings"))
+    end,
+    feed_failures_from_native_servers = function()
+        local app, F = boot()
+        go(app, F, "gemini://g.test/log/")
+        F.press("f5"); steps(app)
+        F.tcpServers["g.test:1965"].fp = "cc"
+        app:refreshAll(); steps(app)
+        T.ok(F.hasToast("1 feed failed to refresh: Certificate changed - open it to review"))
+        local feed = app.store:feedIndex().feeds[1]
+        feed.fetched_at = 0
+        app:openFeed(feed); steps(app)
+        T.eq(app.screenName, "cert")
+        F.press("enter"); steps(app)
+        T.eq(app.screenName, "page"); T.eq(app.page.isFeedList, true)
+        F.routes["gemini://g.test/log/"] = "10 Who are you\r\n"
+        app:refreshAll(); steps(app)
+        T.ok(F.hasToast("1 feed failed to refresh: Feed asks for input"))
+    end,
+    f5_on_gopher_explains = function()
+        local app, F = boot()
+        go(app, F, "gopher://h.test/")
+        F.press("f5"); steps(app)
+        T.ok(F.hasToast("Feeds aren't supported for Gopher"))
+    end,
     native_images_that_fail = function()
         local app, F = boot()
         F.failScaled = true

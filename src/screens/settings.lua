@@ -1,13 +1,14 @@
--- Settings: proxy URL, token, font and a connection test (spec 6.8).
+-- Settings: proxy URL, token, font, images, search and a connection test
+-- (spec 6.8, small web spec 9.3).
 local wrap = require("src.wrap")
 local theme = require("src.theme")
 local fonts = require("src.fonts")
 
 local S = {}
-local ITEMS = { "proxy", "token", "font", "images", "test" }
+local ITEMS = { "proxy", "token", "font", "images", "search", "test" }
 
-function S.enter(app, args)
-    app.set = { sel = 1, firstRun = args.firstRun }
+function S.enter(app)
+    app.set = { sel = 1 }
 end
 
 local function label(app, item)
@@ -16,6 +17,7 @@ local function label(app, item)
     if item == "token" then return "Token: " .. (c.token ~= "" and ("****" .. c.token:sub(-4)) or "(not set)") end
     if item == "font" then return "Font: " .. fonts.LABELS[c.font] end
     if item == "images" then return "Images: " .. (c.images == "inline" and "Inline" or "Links") end
+    if item == "search" then return "Search: " .. (c.search ~= "" and (c.search:gsub("^%a[%w+.%-]*://", "")) or "(off)") end
     return "Test connection"
 end
 
@@ -26,14 +28,9 @@ function S.draw(app)
         app.ui.drawListItem(0, 30 + (i - 1) * 16, 320, label(app, item), i == set.sel, true)
     end
     local notes = {}
-    if set.firstRun then
-        notes = {
-            "PicoSurf reads the web through a",
-            "PicoSurf proxy you run yourself.",
-            "Setup: github.com/PicoDeck/picosurf",
-            "(proxy/README.md), then enter its",
-            "URL and token above.",
-        }
+    if app.cfg.proxyUrl == "" then
+        notes[1] = "Web pages need a PicoSurf proxy (setup: github.com/PicoDeck/picosurf). "
+            .. "Gemini and Gopher work without one."
     end
     if app.cfg.proxyUrl:lower():match("^http://") then
         notes[#notes + 1] = "Warning: http:// sends the token unencrypted."
@@ -75,6 +72,13 @@ function S.key(app, action)
             app:saveConfig("font", fonts.nextChoice(app.cfg.font)) -- lays the page out again
         elseif item == "images" then
             app:setImages(app.cfg.images == "inline" and "links" or "inline")
+        elseif item == "search" then
+            local v = app.ui.textInput("Search URL:", app.cfg.search)
+            app.input.clearState()
+            if v then
+                v = trim(v)
+                app:saveConfig("search", v == "" and "off" or v)
+            end
         else
             app:ping()
         end

@@ -14,15 +14,26 @@ return {
         T.eq(url.host("https://example.com:8080/a?b"), "example.com")
         T.eq(url.host("not a url"), "not a url")
     end,
-    normalize_adds_https_and_trims = function()
-        T.eq(url.normalize("example.com/a"), "https://example.com/a")
+    normalize_keeps_urls_and_trims = function()
         T.eq(url.normalize("  http://x.org/a  "), "http://x.org/a")
+        T.eq(url.normalize("gemini://g.test/a b"), "gemini://g.test/a b")
+        T.eq(select(2, url.normalize("   ")), "Type a URL")
     end,
-    normalize_refuses_spaces_and_empty_text = function()
-        local u, err = url.normalize("two words")
-        T.eq(u, nil)
-        T.eq(err, "Not a URL (search isn't supported yet)")
-        T.eq(url.normalize("   "), nil)
+    normalize_hosts_take_https_with_a_proxy_else_gemini = function()
+        T.eq(url.normalize("example.com/a", { proxy = true }), "https://example.com/a")
+        T.eq(url.normalize("example.com/a"), "gemini://example.com/a")
+    end,
+    normalize_searches_everything_else = function()
+        local s = { search = "gemini://tlgs.one/search" }
+        T.eq(url.normalize("two words", s), "gemini://tlgs.one/search?two%20words")
+        T.eq(url.normalize("localhost", s), "gemini://tlgs.one/search?localhost")
+        T.eq(url.normalize("cats", { search = "https://html.duckduckgo.com/html/?q=%s" }),
+            "https://html.duckduckgo.com/html/?q=cats")
+        T.eq(url.normalize("100% cats", { search = "https://s.test/?q=%s" }), "https://s.test/?q=100%25%20cats")
+        T.eq(url.normalize("cats", { search = "gopher://gopher.floodgap.com/7/v2/vs" }),
+            "gopher://gopher.floodgap.com/7/v2/vs%09cats")
+        local u, err = url.normalize("two words", { search = "" })
+        T.eq(u, nil); T.eq(err, "Not a URL")
     end,
     parse_base_variants = function() -- Review Focus 5
         local b = url.parseBase("https://p.example.com")

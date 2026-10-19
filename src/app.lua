@@ -20,6 +20,16 @@ App.__index = App
 App.MAX_BACK, App.MAX_CACHE = 20, 3
 App.NO_PROXY = "Web pages need a proxy - set one in Settings"
 App.PROMPT_MAX = 48 -- a Gemini input prompt, cut to ui.textInput's width
+App.SEARCH = "gemini://tlgs.one/search"
+-- Added once, after the user's own bookmarks (small web spec 9.4).
+App.STARTERS = {
+    { title = "Gemini project", url = "gemini://geminiprotocol.net/" },
+    { title = "Cosmos (gemlogs)", url = "gemini://cosmos.skyjake.fi/" },
+    { title = "CAPCOM (gemlogs)", url = "gemini://gemini.circumlunar.space/capcom/" },
+    { title = "TLGS search", url = "gemini://tlgs.one/" },
+    { title = "Floodgap Gopher", url = "gopher://gopher.floodgap.com/" },
+    { title = "Veronica-2 search", url = "gopher://gopher.floodgap.com/7/v2/vs" },
+}
 
 -- A copy of a page's inline box heights, for a Back entry or Reload (inline images spec 5.6).
 local function copyBoxes(b)
@@ -53,6 +63,9 @@ function App:loadConfig()
         proxyUrl = c.get("proxy_url") or "", token = c.get("token") or "", font = fonts.normalize(c.get("font")),
         images = c.get("images") == "inline" and "inline" or "links",
     }
+    -- "off" turns search off (Settings -> Search left empty); nothing saved means TLGS.
+    local search = c.get("search")
+    self.cfg.search = search == nil and App.SEARCH or (search == "off" and "" or search)
     local fontChanged = self:loadFont()
     self.oldProxyWarned = nil -- a changed setting, say a newer proxy: pictures are tried again
     self:cancelRefresh() -- before closeAll, which would fail its requests
@@ -155,13 +168,22 @@ function App:show(name, args)
     if self.screen.enter then self.screen.enter(self, args or {}) end
 end
 
+-- Home, with or without a proxy: Gemini and Gopher need none (small web
+-- spec 9.1).
 function App:start()
     self:addMenuItems()
-    if self.cfg.proxyUrl == "" then
-        self:show("settings", { firstRun = true })
-    else
-        self:show("home")
-    end
+    self:addStarters()
+    self:show("home")
+end
+
+-- The starter bookmarks, once per device (small web spec 9.4).
+function App:addStarters()
+    local c = self.pc.config
+    if c.get("starters") ~= nil then return end
+    local added = self.store:appendBookmarks(App.STARTERS)
+    c.set("starters", "1")
+    c.save()
+    self:log("starters", added)
 end
 
 -- One pass of the main loop: input, finished requests, the screen's own
@@ -667,7 +689,7 @@ function App:promptGo(default)
     self.input.clearState()
     self.dirty = true
     if not text then return end
-    local target, err = url.normalize(text)
+    local target, err = url.normalize(text, { proxy = self.pool ~= nil, search = self.cfg.search })
     if not target then return self:toast(err, self.ui.TOAST_WARNING) end
     self:open(target)
 end
@@ -806,20 +828,30 @@ function App:applyFeed(feed, r)
     return data
 end
 
+-- Why a feed request failed, for its toast (small web spec 5, 6).
+local function feedFailure(r)
+    if r.kind == "input" then return "Feed asks for input" end
+    if r.kind == "certchanged" then return "Certificate changed - open it to review" end
+    return r.message
+end
+
 -- F5 on a page: subscribe to the feed it advertises (X-Feed-Url), or let the
--- proxy look for one from the page's URL.
+-- proxy look for one from the page's URL. A Gemini page is its own feed: its
+-- dated links (small web spec 9.6).
 function App:subscribe()
     local p = self.page
     if not p then return end
     if p.isFeedList then return self:toast("Already subscribed") end
+    if url.scheme(p.url) == "gopher" then return self:toast("Feeds aren't supported for Gopher") end
     self:show("loading", {
         url = p.feedUrl or p.url, as = "feed",
         onCancel = function() self:show("page") end,
         onResult = function(r)
             self:show("page")
             if r.kind ~= "gemini" then
-                self:log("error", r.status or "-", r.message)
-                return self:toast(r.message or "Not a feed", self.ui.TOAST_ERROR)
+                local why = feedFailure(r) or "Not a feed"
+                self:log("error", r.status or "-", why)
+                return self:toast(why, self.ui.TOAST_ERROR)
             end
             local index = self.store:feedIndex()
             local feed, isNew = feeds.subscribe(index, r.finalUrl or p.url, (r.title ~= "" and r.title) or nil)
@@ -845,11 +877,15 @@ function App:openFeed(feed, opts)
         url = feed.url, as = "feed",
         onCancel = function() self:show(self.page and "page" or "home") end,
         onResult = function(r)
+            if r.kind == "certchanged" then
+                return self:show("cert", { change = r, retry = function() self:openFeed(feed, opts) end })
+            end
             if r.kind == "gemini" then
                 self:applyFeed(feed, r)
             else
-                self:log("error", r.status or "-", r.message)
-                self:toast(r.message or "Refresh failed", self.ui.TOAST_ERROR)
+                local why = feedFailure(r) or "Refresh failed"
+                self:log("error", r.status or "-", why)
+                self:toast(why, self.ui.TOAST_ERROR)
             end
             self:showFeed(feed, opts)
         end,
@@ -875,6 +911,15 @@ function App:showFeed(feed, opts)
     self:show("page")
 end
 
+-- Whether any feed is a website's, fetched through the proxy.
+local function hasWebFeed(list)
+    for _, f in ipairs(list) do
+        local s = url.scheme(f.url)
+        if s == "http" or s == "https" then return true end
+    end
+    return false
+end
+
 -- F5 on the Feeds tab: refresh every feed, two requests at a time. Without
 -- WiFi, or before the clock is set for TLS, it doesn't start: the loading
 -- screen's waits would hold the Feeds tab.
@@ -886,7 +931,7 @@ function App:refreshAll()
         self:log("error", "-", "No WiFi")
         return self:toast("No WiFi - can't refresh feeds", self.ui.TOAST_WARNING)
     end
-    if self.base and self.base.tls and not self.sys.getClock().synced then
+    if self.base and self.base.tls and not self.sys.getClock().synced and hasWebFeed(list) then
         self:log("error", "-", "Clock not set")
         return self:toast("Clock not set yet - try again in a moment", self.ui.TOAST_WARNING)
     end
@@ -917,7 +962,7 @@ function App:pumpRefresh()
                 if self:feedById(feed.id) then self:applyFeed(feed, r) end
                 R.ok = R.ok + 1
             else
-                refreshFailed(self, R, r.status, r.message) -- a "clock" result too
+                refreshFailed(self, R, r.status, feedFailure(r)) -- a "clock" result too
             end
             self:pumpRefresh()
         end)

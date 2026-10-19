@@ -136,6 +136,21 @@ function M:toggleBookmark(u, title)
     return true
 end
 
+-- Appends the entries ({url, title}) not already bookmarked, within the cap.
+-- Returns how many were added.
+function M:appendBookmarks(entries)
+    local list, n = self:bookmarks(), 0
+    for _, e in ipairs(entries) do
+        if #list >= M.MAX_BOOKMARKS then break end
+        if not indexOf(list, e.url) then
+            list[#list + 1] = { url = e.url, title = e.title }
+            n = n + 1
+        end
+    end
+    if n > 0 then self:save("bookmarks.json", list) end
+    return n
+end
+
 function M:removeBookmark(i)
     local list = self:bookmarks()
     if list[i] == nil then return end
