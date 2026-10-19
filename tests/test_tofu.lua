@@ -75,4 +75,16 @@ return {
         T.eq(tofu.date(1792000000), "2026-10-14")
         T.eq(tofu.date(2147483647), "2038-01-19")
     end,
+    a_hand_edited_date_sets_the_file_aside = function()
+        local pins, _, files, json = setup()
+        files["/data/x/known_hosts.json"] = json.encode({ ["g.test:1965"] = { fp = "aa", first = "x", seen = 1 } })
+        T.eq(next(pins:hosts()), nil, "an entry without numeric dates is not trusted")
+        T.ok(files["/data/x/known_hosts.json.bad"], "the file is set aside")
+    end,
+    a_visit_before_the_clock_is_set_keeps_the_last_seen_time = function()
+        local pins = setup()
+        pins:check("g.test", 1965, "aa", 100)
+        T.eq(pins:check("g.test", 1965, "aa", 0), "ok")
+        T.eq(pins:hosts()["g.test:1965"].seen, 100)
+    end,
 }

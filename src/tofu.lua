@@ -7,7 +7,10 @@ M.FILE, M.MAX, M.SEEN_SAVE_MS = "known_hosts.json", 500, 60000
 
 local function valid(v)
     for k, e in pairs(v) do
-        if type(k) ~= "string" or type(e) ~= "table" or type(e.fp) ~= "string" then return false end
+        if type(k) ~= "string" or type(e) ~= "table" or type(e.fp) ~= "string"
+            or type(e.first) ~= "number" or type(e.seen) ~= "number" then
+            return false
+        end
     end
     return true
 end
@@ -53,8 +56,12 @@ function M:check(host, port, fp, now)
         return "new"
     end
     if e.fp == fp then
-        e.seen = now
-        self.seenDirty = true
+        -- Before time sync now is 0: keep the last real time, or the host
+        -- would look least recently seen and be dropped first.
+        if now and now > 0 then
+            e.seen = now
+            self.seenDirty = true
+        end
         return "ok"
     end
     return "changed", e

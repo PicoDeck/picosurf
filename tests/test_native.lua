@@ -4,6 +4,7 @@ local fakes = require("tests.fakes")
 local store = require("src.store")
 local tofu = require("src.tofu")
 local native = require("src.native")
+local proto = require("src.gemini")
 
 -- A fake device, env and a get() that runs the main loop's posts.
 local function setup()
@@ -147,5 +148,16 @@ return {
         h.cancel()
         pump()
         T.eq(got, 0)
+    end,
+    a_reply_that_cannot_be_read_ends_the_request = function()
+        local F, get = setup()
+        gemini(F, "g.test:1965", "aa", { ["gemini://g.test/"] = "20 text/gemini\r\n# Hi\n" })
+        local real, calls = proto.interpret, 0
+        proto.interpret = function() calls = calls + 1; error("not enough memory") end
+        local ok, results = pcall(get, "gemini://g.test/")
+        proto.interpret = real
+        T.ok(ok, tostring(results))
+        T.eq(#results, 1); T.eq(results[1].kind, "error"); T.eq(results[1].message, "Page too large for memory")
+        T.eq(calls, 2, "collected and tried once more")
     end,
 }

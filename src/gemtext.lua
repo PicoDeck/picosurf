@@ -14,10 +14,17 @@ local function clean(raw)
     return (raw:gsub("\r$", ""):gsub("\t", "    "))
 end
 
+-- s without leading or trailing spaces, in linear time ("^%s*(.-)%s*$"
+-- backtracks over every run of spaces: quadratic on a hostile line).
+local function trim(s)
+    return s:match("^%s*(.*)$"):match("^(.*%S)") or ""
+end
+
 function M.line(raw)
     if raw:sub(1, 2) == "=>" then
-        local u, label = raw:match("^=>%s*(%S+)%s*(.-)%s*$")
+        local u, rest = raw:match("^=>%s*(%S+)(.*)$")
         if u then
+            local label = trim(rest)
             local num = label:match("^%[(%d+)%]")
             return {
                 t = "link", url = u, text = label ~= "" and label or u,
@@ -27,8 +34,8 @@ function M.line(raw)
         end
         return { t = "text", text = raw }
     end
-    local hashes, rest = raw:match("^(#+)%s*(.-)%s*$")
-    if hashes then return { t = "h" .. math.min(#hashes, 3), text = rest } end
+    local hashes, rest = raw:match("^(#+)(.*)$")
+    if hashes then return { t = "h" .. math.min(#hashes, 3), text = trim(rest) } end
     if raw:sub(1, 2) == "* " then return { t = "item", text = raw:sub(3) } end
     if raw:sub(1, 1) == ">" then return { t = "quote", text = (raw:sub(2):gsub("^ ", "")) } end
     if raw:match("^%s*$") then return { t = "blank", text = "" } end

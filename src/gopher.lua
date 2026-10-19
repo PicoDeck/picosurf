@@ -79,8 +79,9 @@ local function textLine(l)
     return l
 end
 
--- A menu (UTF-8 from fold.decode) as gemtext: info lines in preformatted
--- blocks, items as links labelled by kind (small web spec 7).
+-- A menu (the server's bytes) as gemtext: info lines in preformatted blocks,
+-- items as links labelled by kind (small web spec 7). Only the text shown is
+-- decoded, so a Latin-1 selector goes back to the server as it came.
 function M.menu(text)
     local out, art = {}, {}
     local function flushArt()
@@ -94,12 +95,12 @@ function M.menu(text)
         if line == "." then break end
         local t = line:sub(1, 1)
         local f = split(line:sub(2))
-        local display = fold.line(f[1] or "")
+        local display = fold.line(fold.decode(f[1] or ""))
         if t == "i" then
             art[#art + 1] = display:find("^```") and (" " .. display) or display
         elseif line ~= "" and not line:find("\t", 1, true) then
             flushArt()
-            out[#out + 1] = textLine(fold.line(line))
+            out[#out + 1] = textLine(fold.line(fold.decode(line)))
         elseif line ~= "" then
             flushArt()
             local selector, host, port = f[2], f[3], math.tointeger(tonumber(f[4] or ""))
@@ -108,7 +109,7 @@ function M.menu(text)
                 local u = fold.url(web)
                 out[#out + 1] = "=> " .. u .. " " .. (display ~= "" and display or u)
             elseif LINKS[t] and selector and host and host ~= "" and port then
-                local u = M.url(host:lower(), port, t, selector)
+                local u = fold.url(M.url(host:lower(), port, t, selector))
                 out[#out + 1] = "=> " .. u .. " " .. LINKS[t] .. (display ~= "" and display or u)
             else
                 out[#out + 1] = textLine(display)
@@ -126,10 +127,10 @@ function M.interpret(req, data, as)
     if data == "" then return { kind = "error", message = "Empty response from " .. req.host } end
     local sel = req.selector
     if sel ~= "" and sel:sub(1, 1) ~= "/" then sel = "/" .. sel end
-    local title = fold.line(req.host .. sel):sub(1, M.TITLE_MAX)
+    local title = fold.line(fold.decode(req.host .. sel)):sub(1, M.TITLE_MAX)
     local r = { kind = "gemini", finalUrl = req.url, title = title, mode = "native" }
     if req.type == "1" or req.type == "7" then
-        r.body = M.menu(fold.decode(data))
+        r.body = M.menu(data)
     elseif req.type == "0" or req.type == "h" then
         local text = fold.decode(data):gsub("\r?\n%.%s*$", "\n")
         r.body = textflow.convert(text)

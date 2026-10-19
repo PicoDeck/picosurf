@@ -49,8 +49,15 @@ local function eachLine(text)
     return text:gmatch("([^\n]*)\n")
 end
 
+-- s without leading or trailing spaces, in linear time ("^%s*(.-)%s*$"
+-- backtracks over every run of spaces: quadratic on a hostile line).
+local function trim(s)
+    return s:match("^%s*(.*)$"):match("^(.*%S)") or ""
+end
+
 local function linkParts(line)
-    return line:match("^=>%s*(%S+)%s*(.-)%s*$")
+    local u, rest = line:match("^=>%s*(%S+)(.*)$")
+    if u then return u, trim(rest) end
 end
 
 -- Gemtext with every link absolute and requestable and the text folded
@@ -82,7 +89,7 @@ local function firstHeading(text)
         if line:sub(1, 3) == "```" then
             pre = not pre
         elseif not pre and line:sub(1, 1) == "#" and line:sub(2, 2) ~= "#" then
-            local h = line:match("^#%s*(.-)%s*$")
+            local h = trim(line:sub(2))
             if h ~= "" then return h end
         end
     end
@@ -118,20 +125,23 @@ end
 function M.interpret(req, data, as)
     local status, meta, body = M.header(data)
     if not status then return fail("Not a Gemini response") end
+    -- The meta as text to show: decoded first, as servers send Latin-1 too
+    -- (fold.line takes UTF-8). Redirects use the server's own bytes.
+    local shown = fold.line(fold.decode(meta))
     local class = status // 10
-    if class == 1 then return { kind = "input", prompt = fold.line(meta), sensitive = status == 11, url = req.url } end
+    if class == 1 then return { kind = "input", prompt = shown, sensitive = status == 11, url = req.url } end
     if class == 3 then
         local to = url.resolve(req.url, meta)
         if not to or meta == "" then return fail("Not a Gemini response") end
         return { kind = "redirect", url = fold.url(to) }
     end
     if class == 4 then
-        if status == 44 then return fail("Server asks to wait " .. fold.line(meta) .. " s") end
-        return fail((meta ~= "" and fold.line(meta) or "Temporary failure") .. " (" .. status .. ")")
+        if status == 44 then return fail("Server asks to wait " .. shown .. " s") end
+        return fail((meta ~= "" and shown or "Temporary failure") .. " (" .. status .. ")")
     end
     if class == 5 then
         if status == 51 then return fail("Not found") end
-        return fail((meta ~= "" and fold.line(meta) or "Permanent failure") .. " (" .. status .. ")")
+        return fail((meta ~= "" and shown or "Permanent failure") .. " (" .. status .. ")")
     end
     if class == 6 then return fail("This page needs a client certificate, which PicoSurf doesn't support") end
     if class ~= 2 then return fail("Not a Gemini response") end
@@ -155,7 +165,7 @@ function M.interpret(req, data, as)
         return r
     end
     if IMAGES[mime] then return { kind = "image", body = body, native = true, finalUrl = req.url } end
-    return fail("Can't show " .. fold.line(mime) .. " files")
+    return fail("Can't show " .. fold.line(fold.decode(mime)) .. " files")
 end
 
 return M

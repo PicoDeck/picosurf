@@ -6,12 +6,18 @@ local fold = require("src.fold")
 local M = {}
 M.SHORT = 45 -- a block whose lines are all shorter keeps its line breaks
 
+-- s without trailing spaces, in linear time ("%s+$" backtracks over every
+-- run of spaces: quadratic on a hostile line).
+local function rtrim(s)
+    return s:match("^(.*%S)") or ""
+end
+
 -- Lines without their CR, trailing spaces or tabs (4 spaces each).
 local function splitLines(text)
     local out = {}
     if text:sub(-1) ~= "\n" then text = text .. "\n" end
     for l in text:gmatch("([^\n]*)\n") do
-        out[#out + 1] = (l:gsub("\t", "    "):gsub("%s+$", ""))
+        out[#out + 1] = rtrim((l:gsub("\t", "    ")))
     end
     return out
 end
@@ -59,17 +65,22 @@ local function addBlock(out, block)
     elseif isShort(block) then
         for _, l in ipairs(block) do out[#out + 1] = textLine(l:match("^%s*(.*)$")) end
     else
-        local cur
+        -- A paragraph's lines are gathered and joined once (joining as it
+        -- goes copies the paragraph at every line).
+        local parts
+        local function emit()
+            if parts then out[#out + 1] = textLine(table.concat(parts, " ")) end
+        end
         for _, l in ipairs(block) do
             local t = l:match("^%s*(.*)$")
-            if cur and not t:find("^[%*%-%+] ") and not t:find("^%d+%. ") then
-                cur = cur .. " " .. t
+            if parts and not t:find("^[%*%-%+] ") and not t:find("^%d+%. ") then
+                parts[#parts + 1] = t
             else
-                if cur then out[#out + 1] = textLine(cur) end
-                cur = t
+                emit()
+                parts = { t }
             end
         end
-        if cur then out[#out + 1] = textLine(cur) end
+        emit()
     end
 end
 

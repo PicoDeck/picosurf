@@ -31,6 +31,7 @@ Run this on a real PicoCalc with PicoDeck 0.5.0 or later, against the deployed W
     - `/data/net.picodeck.picosurf/known_hosts.json` now has `geminiprotocol.net:1965`; its `fp` equals `openssl s_client -connect geminiprotocol.net:1965 -servername geminiprotocol.net </dev/null | openssl x509 -noout -fingerprint -sha256` (lowercase, colons removed).
     - Follow a few links, then Back: pages come from the cache without a second handshake.
     - Open Floodgap Gopher, then a text file: prose is reflowed, art stays monospace.
+    - Open a Gopher or Gemini text of 100 KB or more and scroll to the end: it ends where the file does (compare with a laptop client). A page cut short with no error is a firmware bug (data lost at the server's close); `Connection to <host> was lost` means the app fell 32 KB behind the network.
     - F5 on a gemlog from Cosmos subscribes; F5 on the Feeds tab refreshes it.
     - F1, type `picocalc`: TLGS results open.
 

@@ -72,30 +72,35 @@ local function split(u)
     return { scheme = scheme and scheme:lower(), authority = authority, path = path, query = query, fragment = fragment }
 end
 
--- RFC 3986 5.2.4.
+-- RFC 3986 5.2.4, reading input by position (cutting the rest of input off
+-- at every step copied it: quadratic on a long path).
 local function removeDots(input)
-    local out = {}
-    while input ~= "" do
-        if input:sub(1, 3) == "../" then
-            input = input:sub(4)
-        elseif input:sub(1, 2) == "./" then
-            input = input:sub(3)
-        elseif input:sub(1, 3) == "/./" then
-            input = input:sub(3)
-        elseif input == "/." then
-            input = "/"
-        elseif input:sub(1, 4) == "/../" then
-            input = input:sub(4)
+    local out, i, n = {}, 1, #input
+    local function at(s) return input:sub(i, i + #s - 1) == s end
+    local function rest(s) return n - i + 1 == #s and at(s) end
+    while i <= n do
+        if at("../") then
+            i = i + 3
+        elseif at("./") then
+            i = i + 2
+        elseif at("/./") then
+            i = i + 2
+        elseif rest("/.") then
+            out[#out + 1] = "/"
+            break
+        elseif at("/../") then
+            i = i + 3
             table.remove(out)
-        elseif input == "/.." then
-            input = "/"
+        elseif rest("/..") then
             table.remove(out)
-        elseif input == "." or input == ".." then
-            input = ""
+            out[#out + 1] = "/"
+            break
+        elseif rest(".") or rest("..") then
+            break
         else
-            local seg = input:match("^/?[^/]*")
+            local seg = input:match("^/?[^/]*", i)
             out[#out + 1] = seg
-            input = input:sub(#seg + 1)
+            i = i + #seg
         end
     end
     return table.concat(out)

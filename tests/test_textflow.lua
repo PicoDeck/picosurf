@@ -56,4 +56,18 @@ return {
     text_is_folded = function()
         T.eq(textflow.convert("Caf\u{00E9} \u{2014} ok\n"), "Cafe -- ok\n")
     end,
+    space_runs_take_linear_time = function()
+        local line = "a" .. string.rep(" ", 30000) .. "b"
+        local started = os.clock()
+        local out = textflow.convert(line .. "\n")
+        T.ok(os.clock() - started < 1, "a 30,000-space run took under 1 s on the host")
+        T.eq(out, "```\n" .. line .. "\n```\n", "art: three or more spaces inside the line")
+    end,
+    long_prose_takes_linear_time = function()
+        local text = string.rep("a line of prose that is long enough to be reflowed\n", 15000)
+        local started = os.clock()
+        local out = textflow.convert(text)
+        T.ok(os.clock() - started < 1, "15,000 prose lines took under 1 s on the host")
+        T.eq(#out, 15000 * 50 + 14999 + 1, "one reflowed line")
+    end,
 }

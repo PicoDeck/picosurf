@@ -81,7 +81,18 @@ function M.get(env, target, as, done)
             return finish(M.failure(spec.host, res))
         end
         local proto = spec.scheme == "gemini" and gemini or gopher
-        local r = proto.interpret(spec.req, res.body, as)
+        -- Reading a large reply can run out of memory: collect and try once
+        -- more, then end with spec 11's message (as App:withMemoryRetry).
+        local ok, r = pcall(proto.interpret, spec.req, res.body, as)
+        if not ok then
+            env.log("error", "-", spec.host, tostring(r))
+            collectgarbage()
+            ok, r = pcall(proto.interpret, spec.req, res.body, as)
+            if not ok then
+                env.log("error", "-", spec.host, tostring(r))
+                return finish(fail("Page too large for memory"))
+            end
+        end
         if r.kind == "redirect" then
             if n >= M.MAX_HOPS then return finish(fail("Too many redirects")) end
             if url.scheme(r.url) == "gemini" then return hop(r.url, n + 1) end

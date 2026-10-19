@@ -115,4 +115,24 @@ return {
         T.eq(interpret("20 text/gemini\r\n# Not a log\n=> a.gmi A\n", "feed").message, "No dated posts here - not a gemlog")
         T.eq(interpret("20 text/plain\r\nhello\n", "feed").message, "No dated posts here - not a gemlog")
     end,
+    space_runs_in_links_and_headings_take_linear_time = function()
+        local gap = string.rep(" ", 30000)
+        local started = os.clock()
+        local out = gemini.rewrite("=> /x a" .. gap .. "b" .. gap .. "\n# h" .. gap .. "i" .. gap .. "\n",
+            "gemini://g.test/")
+        local list, title = gemini.feed("# t" .. gap .. "u" .. gap .. "\n=> /p 2024-01-01 a" .. gap .. "b\n",
+            "gemini://g.test/")
+        T.ok(os.clock() - started < 1, "30,000-space runs took under 1 s on the host")
+        T.eq(out, "=> gemini://g.test/x a" .. gap .. "b\n# h" .. gap .. "i" .. gap .. "\n")
+        T.eq(list, "=> gemini://g.test/p 2024-01-01 a" .. gap .. "b\n")
+        T.eq(title, "t" .. gap .. "u")
+    end,
+    latin1_meta_is_decoded_before_it_is_shown = function()
+        local r = interpret("40 Serveur surcharg\233\r\n")
+        T.eq(r.kind, "error"); T.eq(r.message, "Serveur surcharge (40)")
+        T.eq(interpret("10 Entr\233e\r\n").prompt, "Entree")
+        T.eq(interpret("44 1\233\r\n").message, "Server asks to wait 1e s")
+        T.eq(interpret("20 application/x-\233\r\nx").message, "Can't show application/x-e files")
+        T.eq(interpret("31 caf\233\r\n").url, "gemini://g.test/dir/caf%E9", "a redirect keeps the server's bytes")
+    end,
 }

@@ -44,4 +44,11 @@ return {
         T.eq(url.withInput("gopher://h.test/7/v2/vs", "cats"), "gopher://h.test/7/v2/vs%09cats")
         T.eq(url.withInput("gopher://h.test/7/v2/vs%09dogs", "cats"), "gopher://h.test/7/v2/vs%09cats")
     end,
+    long_paths_resolve_in_linear_time = function()
+        local path = string.rep("/a", 100000)
+        local started = os.clock()
+        T.eq(url.resolve("gemini://g.test/", path), "gemini://g.test" .. path)
+        T.eq(url.resolve("gemini://g.test/", string.rep("/a/..", 50000)), "gemini://g.test/")
+        T.ok(os.clock() - started < 1, "200 KB and 250 KB paths took under 1 s on the host")
+    end,
 }

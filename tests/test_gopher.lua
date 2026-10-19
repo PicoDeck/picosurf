@@ -88,4 +88,15 @@ return {
     latin1_menus = function()
         T.eq(gopher.menu(require("src.fold").decode("iCaf\233\t\tx\t1\r\n")), "```\nCafe\n```\n")
     end,
+    latin1_menus_keep_their_selector_bytes = function()
+        T.eq(gopher.menu("1Caf\233 menu\tcaf\233\th.test\t70\r\n"), "=> gopher://h.test/1caf%E9 Cafe menu\n")
+        T.eq(gopher.menu("Caf\233 in a line without tabs\r\n"), "Cafe in a line without tabs\n")
+    end,
+    a_non_ascii_host_is_encoded = function()
+        T.eq(gopher.menu("1\t/x\th\195\182st\t70\r\n"), "=> gopher://h%C3%B6st/1/x gopher://h%C3%B6st/1/x\n")
+    end,
+    a_latin1_selector_titles_the_page = function()
+        local r = gopher.interpret(gopher.parse("gopher://h.test/0caf%E9"), "text\n")
+        T.eq(r.kind, "gemini"); T.eq(r.title, "h.test/cafe")
+    end,
 }

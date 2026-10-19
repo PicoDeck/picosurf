@@ -56,4 +56,13 @@ return {
         T.eq(items[1].url, "https://b.test/2"); T.eq(items[1].date, "2026-10-13"); T.eq(items[1].title, "Two")
         T.eq(items[2].date, nil); T.eq(items[2].title, "Undated")
     end,
+    space_runs_take_linear_time = function()
+        local gap = string.rep(" ", 30000)
+        local started = os.clock()
+        local link = g.line("=> gemini://g.test/ a" .. gap .. "b" .. gap)
+        local head = g.line("## h" .. gap .. "i" .. gap)
+        T.ok(os.clock() - started < 1, "30,000-space runs took under 1 s on the host")
+        T.eq(link.t, "link"); T.eq(link.url, "gemini://g.test/"); T.eq(link.text, "a" .. gap .. "b")
+        T.eq(head.t, "h2"); T.eq(head.text, "h" .. gap .. "i")
+    end,
 }
