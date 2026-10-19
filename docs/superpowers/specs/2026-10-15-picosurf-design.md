@@ -8,8 +8,8 @@ Status: draft, awaiting review
 Read the ordinary web (news, blogs, documentation) on a PicoCalc running
 PicoDeck. The device cannot run a web engine, so a proxy fetches each page,
 extracts the readable part with Mozilla Readability, and returns it as gemtext,
-which the device renders. Gemini and Gopher are later additions that reuse
-the same renderer.
+which the device renders. Gemini and Gopher are read natively, with no proxy,
+through the same renderer (`2026-10-17-picosurf-small-web-design.md`).
 
 The proxy is self-hosted: the author runs one, and anyone else can deploy
 their own. A public shared instance is not part of v1, but nothing in v1 rules
@@ -27,9 +27,12 @@ it out (section 9).
   `2026-10-16-picosurf-inline-images-design.md`); proportional reading fonts,
   Sans and Serif (`2026-10-16-picosurf-proportional-fonts-design.md`).
 
-**Later (section 9):** native Gemini (needs a firmware call for TOFU), Gopher,
-Spartan, Nex and Finger, web search, saving pages for offline reading, OPML
-import, a public instance, fonts beyond ASCII.
+**Since v1:** native Gemini and Gopher, with certificate pinning, search from
+Go, starter bookmarks and gemlog feeds; the proxy is optional (small web
+design).
+
+**Later (section 9):** Spartan, Nex and Finger, saving pages for offline
+reading, OPML import, a public instance, fonts beyond ASCII.
 
 **Non-goals:** JavaScript, logins, cookies, POST forms, web apps.
 
@@ -316,9 +319,10 @@ Deployment:
 - The body is drained while it arrives, with progress shown via
   `getProgress()`. The device gives up past 512 KB. The read timeout is 20 s.
   Esc cancels by closing the connection.
-- Scheme dispatch: `http` and `https` go to the proxy transport. Any other
-  scheme gets the toast `<scheme>:// links aren't supported yet`. Gemini and
-  Gopher transports slot in here later.
+- Scheme dispatch (small web design 2.1): `http` and `https` go to the proxy
+  transport, `gemini` and `gopher` to the native ones. Without a proxy, a web
+  link gets the toast `Web pages need a proxy - set one in Settings`. Any
+  other scheme gets the toast `<scheme>:// links aren't supported yet`.
 
 ### 6.2 Screens
 
@@ -329,7 +333,10 @@ Deployment:
 - **Loading:** spinner, host, bytes received; Esc cancels.
 - **Error:** status and the proxy's reason; Enter retries, Esc/Backspace goes back.
 - **Image:** the JPEG centred on black; Esc/Backspace goes back.
-- **Settings** (system menu): Proxy URL, Token, Font, Images, Test connection.
+- **Settings** (system menu): Proxy URL, Token, Font, Images, Search, Test
+  connection.
+- **Certificate changed:** a pinned Gemini certificate changed; Enter trusts
+  the new one, Esc goes back (small web design 6).
 
 ### 6.3 Layout and drawing
 
@@ -380,11 +387,11 @@ as below.
 | Enter | open the selected link (does nothing when none is selected) |
 | 0-9 | build a link number, shown in the footer (`Link: 12_`); Enter opens `[n]`; Backspace deletes a digit; Esc clears the number |
 | Backspace / Esc (no number being typed) | Back; on the first page in the stack, go Home; on Home, Esc exits |
-| F1 | Go: `ui.textInput("Go to:")`; `https://` added when there's no scheme; input with spaces → toast `Not a URL (search isn't supported yet)` |
+| F1 | Go: `ui.textInput("Go to:")`; a host gets `https://` with a proxy, `gemini://` without; other text is searched for (small web design 9.2) |
 | F2 | Home |
 | F3 | add or remove a bookmark (toast) |
-| F4 | switch reader / full and reload |
-| F5 | on a page with `X-Feed-Url` or a feed list: Subscribe; on the Feeds tab: refresh all |
+| F4 | switch reader / full and reload; on a Gemini or Gopher page, toast `Reader mode is for web pages` |
+| F5 | on a page with `X-Feed-Url`, a feed list or a Gemini page: Subscribe; on a Gopher page, toast `Feeds aren't supported for Gopher`; on the Feeds tab: refresh all |
 
 System menu items (`sys.addMenuItem`): Reload, Edit URL (pre-filled when the
 URL is 128 characters or less, otherwise a toast), Mark all read (in a feed),
@@ -407,7 +414,8 @@ Files live in `/data/net.picodeck.picosurf/`.
 
 | File | Contents | Cap |
 |---|---|---|
-| `config.json` (`picocalc.config`) | `proxy_url`, `token`, `font` (`sans`, `serif`, `scientifica`, `8x12` or `system`), `images` | — |
+| `config.json` (`picocalc.config`) | `proxy_url`, `token`, `font` (`sans`, `serif`, `scientifica`, `8x12` or `system`), `images`, `search` (a URL, or `off`), `starters` | — |
+| `known_hosts.json` | `{"host:port": {fp, first, seen}}`, pinned Gemini certificates (small web design 6) | 500 |
 | `bookmarks.json` | `[{url, title}]`, newest first | 200 |
 | `history.json` | `[{url, title}]`, newest first, revisits move to the top | 100 |
 | `feeds/index.json` | `{next_id, feeds: [{id, url, title, fetched_at, unread}]}` | 50 feeds |
@@ -424,7 +432,8 @@ Files live in `/data/net.picodeck.picosurf/`.
 
 - **Subscribe:** F5 sends `as=feed` with the current URL. The proxy finds the
   feed if the URL is a homepage. The feed is stored under its `X-Final-Url`
-  and `X-Title`. All of its items start unread.
+  and `X-Title`. All of its items start unread. A Gemini page is its own
+  feed: its dated links, fetched natively (small web design 9.6).
 - **Refresh one feed:** replace `items` with the latest list (up to 50),
   prune `seen` to URLs still in `items`, recompute `unread`, update
   `fetched_at`.
@@ -443,8 +452,9 @@ Files live in `/data/net.picodeck.picosurf/`.
 
 ### 6.8 Settings and first run
 
-- **First run:** with no `proxy_url`, open Settings with a short explanation
-  that points to the repo's proxy setup section.
+- **First run:** Home, with the starter bookmarks (small web design 9.1, 9.4).
+  While no proxy is set, Settings explains that web pages need one and points
+  to the repo's proxy setup section.
 - **Fields:** Proxy URL and Token use `ui.textInput`, so each is at most 128
   characters. Font steps through Scientifica, 8×12, Sans and Serif (Sans by
   default). Images switches between Links (the default) and Inline.
@@ -459,7 +469,8 @@ Files live in `/data/net.picodeck.picosurf/`.
 | Situation | Behaviour |
 |---|---|
 | WiFi not connected | "Connecting to WiFi..." screen; Esc goes Home (saved feeds, bookmarks and history still usable) |
-| Clock not set (the TLS error starts with `clock not set`) | "Waiting for time sync...", retries every 3 s |
+| Clock not set (the TLS error starts with `clock not set`) | "Waiting for time sync...", retries every 3 s; proxy requests only (Gemini does not check certificate dates) |
+| Gemini or Gopher failures | small web design 11 |
 | Proxy error status | error screen with status and reason; a 401 shows `Proxy rejected the token - check Settings` |
 | No response in 20 s | error screen `Proxy did not respond` |
 | Out of memory while parsing or laying out (`pcall`) | clear the cached page bodies, `collectgarbage()`, retry once, then show `Page too large for memory` |
@@ -545,19 +556,11 @@ This default list can be swapped for the author's own reading:
 
 ## 9. Later phases
 
-1. **Native Gemini.**
-   - Add a `gemini.lua` transport on `picocalc.tcp` (port 1965).
-   - Firmware: add `tcp:peerFingerprint()`, the SHA-256 of the peer
-     certificate after the handshake on insecure TLS sockets, for TOFU.
-     `MBEDTLS_SSL_KEEP_PEER_CERTIFICATE` is already enabled in
-     `src/mbedtls_config.h`.
-   - Pinned fingerprints go in `/data/<id>/known_hosts.json`.
-   - Known gaps: the firmware has TLS 1.2 only, and mbedTLS cannot do
-     Ed25519. Before committing, measure handshake success against a sample
-     of real Gemini servers.
-   - Device-side ASCII folding for content that doesn't come through the proxy.
-2. **Gopher, Spartan, Nex, Finger:** more transports that convert to the
-   typed-line model.
+1. **Native Gemini:** done, `2026-10-17-picosurf-small-web-design.md`. The
+   handshake survey is `docs/research/2026-10-16-gemini-tls-survey.md`; TLS
+   1.3 in the firmware would add 1.5 points of reach.
+2. **Gopher:** done, the same design. **Spartan, Nex, Finger:** more
+   transports on the same `tcpfetch` layer.
 3. **Public instance:** per-device tokens, rate limits, abuse handling; the
    app's default proxy URL changes.
 4. **Web search** through a configurable backend.

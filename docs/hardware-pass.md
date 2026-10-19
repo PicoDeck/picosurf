@@ -2,7 +2,7 @@
 
 Run this on a real PicoCalc with PicoDeck 0.5.0 or later, against the deployed Worker. Record the results in the release notes.
 
-1. Fresh install: PicoSurf opens Settings. Enter the proxy URL and token. **Test connection** shows "Proxy OK".
+1. Fresh install: PicoSurf opens Home with the six starter bookmarks. Open Settings from the system menu, enter the proxy URL and token. **Test connection** shows "Proxy OK".
 2. F1 `en.wikipedia.org/wiki/Gemini_(protocol)`. Time from Enter to the first screen: ______ s (target under 5 s on home WiFi).
 3. On that page: scroll to the end with Right, check the footer reaches 100%, then follow a link by number and by Tab, and go Back.
 4. Every page on the proxy's smoke list (`proxy/scripts/smoke.ts`) opens without a Lua error.
@@ -25,5 +25,13 @@ Run this on a real PicoCalc with PicoDeck 0.5.0 or later, against the deployed W
 21. With WiFi off, open a feed last fetched more than 30 minutes ago. It shows the saved items and the toast "Offline - showing saved items".
 22. Settings → Images: Inline. Open an article with 10 or more images. Time until the first picture shows: ______ s. Scroll to the end and back with Right and Left: pictures appear in place, the text you're reading doesn't jump when a picture above it loads, and keys stay responsive. Lowest Lua heap free in the dev log while scrolling, not only at the end: ______ (above 1 MB). On a long page, the worst hitch when a picture arrives: ______ ms. Enter on a picture opens it full screen.
 23. Settings → Font: Sans (the default), then Serif. Open the Wikipedia fixture article in each: time to the first screen ______ s / ______ s (target under 5 s, as with Scientifica). Read through a long article: no clipped letters, no line running past the right edge, code blocks in Scientifica. Then System (6x8): 28 lines a screen, no letters cut off at the top or bottom of a row, and the selected link's band covers its line.
+
+24. Small web, on a firmware with `tcp:peerFingerprint()`:
+    - Open the Gemini project starter bookmark. Time from Enter to the first screen: ______ s (expect 2-5 s).
+    - `/data/net.picodeck.picosurf/known_hosts.json` now has `geminiprotocol.net:1965`; its `fp` equals `openssl s_client -connect geminiprotocol.net:1965 -servername geminiprotocol.net </dev/null | openssl x509 -noout -fingerprint -sha256` (lowercase, colons removed).
+    - Follow a few links, then Back: pages come from the cache without a second handshake.
+    - Open Floodgap Gopher, then a text file: prose is reflowed, art stays monospace.
+    - F5 on a gemlog from Cosmos subscribes; F5 on the Feeds tab refreshes it.
+    - F1, type `picocalc`: TLGS results open.
 
 Report any missed target as-is; don't round it.
