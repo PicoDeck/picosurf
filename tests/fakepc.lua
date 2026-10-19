@@ -26,6 +26,7 @@ function M.new()
     F.responder = function() return 404, {}, "no responder" end
 
     function F.service()
+        if F.tcpService and not F.tcpHolding then F.tcpService() end
         if F.holding then return end
         local pending = F.pending
         F.pending = {}
@@ -161,6 +162,98 @@ function M.new()
         return c
     end
 
+    -- picocalc.tcp. F.tcpServers["host:port"] = server: server.fp is the
+    -- certificate fingerprint a TLS socket reports, server.connectErr fails
+    -- the connect with that error, and server.reply(request, conn) returns
+    -- the bytes to send before closing, or {chunks = {...}, err = "...",
+    -- hang = true}. A socket to no server fails with a connect timeout.
+    -- Callbacks run in F.service, as the firmware runs them in its service
+    -- pass. F.tcpOldFirmware: sockets have no peerFingerprint method.
+    -- F.tcpFull: tcp.new returns nil.
+    F.tcpServers, F.tcpMade, F.tcpQueue = {}, {}, {}
+    local tcp = {}
+    function tcp.new(host, port, tls)
+        if F.tcpFull then return nil, "TCP connection pool full or out of memory" end
+        local c = { host = host, port = port, tls = tls or false, cb = {}, buf = "", pos = 1, state = "idle", writes = {} }
+        F.tcpMade[#F.tcpMade + 1] = c
+        local function open()
+            if c.state == "released" then error("tcp: connection is closed") end
+        end
+        function c:setInsecure(v) open(); self.insecure = v end
+        function c:setConnectTimeout(s) self.connectTimeout = s end
+        function c:setReadTimeout(s) self.readTimeout = s end
+        function c:setConnectCallback(fn) self.cb.connect = fn end
+        function c:setReadCallback(fn) self.cb.read = fn end
+        function c:setCloseCallback(fn) self.cb.close = fn end
+        function c:connect()
+            open()
+            if F.netStatus ~= 1 then return false, "WiFi not available" end
+            self.state = "connecting"
+            F.tcpQueue[#F.tcpQueue + 1] = { conn = self, step = "connect" }
+            return true
+        end
+        function c:write(data)
+            open()
+            if self.state ~= "connected" then return -1 end
+            self.writes[#self.writes + 1] = data
+            F.tcpQueue[#F.tcpQueue + 1] = { conn = self, step = "reply" }
+            return #data
+        end
+        function c:read(n)
+            open()
+            if self.pos > #self.buf then return nil end
+            local s = self.buf:sub(self.pos, self.pos + (n or 4096) - 1)
+            self.pos = self.pos + #s
+            return s
+        end
+        function c:available() return #self.buf - self.pos + 1 end
+        function c:error() return self.err end
+        function c:isConnected() return self.state == "connected" end
+        if not F.tcpOldFirmware then
+            function c:peerFingerprint()
+                if self.tls and (self.state == "connected" or self.state == "closed") then return self.fp end
+                return nil
+            end
+        end
+        function c:close() self.state = "released" end
+        return c
+    end
+    local function fire(c, name)
+        if c.state ~= "released" and c.cb[name] then c.cb[name](c) end
+    end
+    -- Runs until nothing is queued: one pass delivers a whole exchange.
+    function F.tcpService()
+        while #F.tcpQueue > 0 do
+            local item = table.remove(F.tcpQueue, 1)
+            local c = item.conn
+            local server = F.tcpServers[c.host .. ":" .. c.port]
+            if c.state == "released" then
+                -- closed by the app meanwhile
+            elseif item.step == "connect" then
+                if not server or server.connectErr then
+                    c.err = server and server.connectErr or "connect timeout (20000ms)"
+                    c.state = "failed"
+                    fire(c, "close")
+                else
+                    c.state, c.fp = "connected", server.fp
+                    fire(c, "connect")
+                end
+            else
+                local r = server.reply(table.concat(c.writes), c)
+                if type(r) == "string" then r = { chunks = { r } } end
+                for _, chunk in ipairs(r.chunks or {}) do
+                    c.buf = c.buf .. chunk
+                    fire(c, "read")
+                end
+                if not r.hang and c.state ~= "released" then
+                    c.err = r.err
+                    c.state = r.err and "failed" or "closed"
+                    fire(c, "close")
+                end
+            end
+        end
+    end
+
     local config = {}
     function config.get(k, d)
         local v = F.config[k]
@@ -189,7 +282,7 @@ function M.new()
 
     F.pc = {
         display = display, ui = ui, input = input, sys = sys, network = network,
-        fs = fs, json = fakes.json(), config = config, graphics = graphics,
+        fs = fs, json = fakes.json(), config = config, graphics = graphics, tcp = tcp,
     }
 
     function F.press(name, mods)
