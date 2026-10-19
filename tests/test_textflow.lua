@@ -1,6 +1,13 @@
 local T = require("tests.t")
 local textflow = require("src.textflow")
 
+-- Seconds fn(n) takes (tests only: the device's Lua has no os).
+local function timed(fn, n)
+    local started = os.clock()
+    fn(n)
+    return os.clock() - started
+end
+
 local function lines(s)
     local t = {}
     for l in s:gmatch("([^\n]*)\n") do t[#t + 1] = l end
@@ -64,10 +71,12 @@ return {
         T.eq(out, "```\n" .. line .. "\n```\n", "art: three or more spaces inside the line")
     end,
     long_prose_takes_linear_time = function()
-        local text = string.rep("a line of prose that is long enough to be reflowed\n", 15000)
-        local started = os.clock()
-        local out = textflow.convert(text)
-        T.ok(os.clock() - started < 1, "15,000 prose lines took under 1 s on the host")
-        T.eq(#out, 15000 * 50 + 14999 + 1, "one reflowed line")
+        local function convert(n)
+            return textflow.convert(string.rep("a line of prose that is long enough to be reflowed\n", n))
+        end
+        T.eq(#convert(15000), 15000 * 50 + 14999 + 1, "one reflowed line")
+        convert(2500) -- warm up
+        local small, big = timed(convert, 2500), timed(convert, 20000)
+        T.ok(big < small * 16, string.format("8x the lines took %.1fx the time (linear: about 8x)", big / small))
     end,
 }

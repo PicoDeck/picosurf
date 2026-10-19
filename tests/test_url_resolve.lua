@@ -1,6 +1,13 @@
 local T = require("tests.t")
 local url = require("src.url")
 
+-- Seconds fn(n) takes (tests only: the device's Lua has no os).
+local function timed(fn, n)
+    local started = os.clock()
+    fn(n)
+    return os.clock() - started
+end
+
 local BASE = "http://a/b/c/d;p?q"
 -- RFC 3986 5.4.1 and 5.4.2 (strict).
 local CASES = {
@@ -46,9 +53,11 @@ return {
     end,
     long_paths_resolve_in_linear_time = function()
         local path = string.rep("/a", 100000)
-        local started = os.clock()
         T.eq(url.resolve("gemini://g.test/", path), "gemini://g.test" .. path)
         T.eq(url.resolve("gemini://g.test/", string.rep("/a/..", 50000)), "gemini://g.test/")
-        T.ok(os.clock() - started < 1, "200 KB and 250 KB paths took under 1 s on the host")
+        local function resolve(n) return url.resolve("gemini://g.test/", string.rep("/a", n)) end
+        resolve(12500) -- warm up
+        local small, big = timed(resolve, 12500), timed(resolve, 100000)
+        T.ok(big < small * 16, string.format("8x the path took %.1fx the time (linear: about 8x)", big / small))
     end,
 }
