@@ -57,7 +57,7 @@ return {
         T.eq(url.resolve("gemini://g.test/", string.rep("/a/..", 50000)), "gemini://g.test/")
         local function resolve(n) return url.resolve("gemini://g.test/", string.rep("/a", n)) end
         resolve(12500) -- warm up
-        local small, big = timed(resolve, 12500), timed(resolve, 100000)
-        T.ok(big < small * 16, string.format("8x the path took %.1fx the time (linear: about 8x)", big / small))
+        local small, big = timed(resolve, 12500), timed(resolve, 200000)
+        T.ok(big < small * 32, string.format("16x the path took %.1fx the time (linear: about 16x)", big / small))
     end,
 }
