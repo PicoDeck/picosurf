@@ -260,8 +260,16 @@ function M.new()
         if v == nil then return d end
         return v
     end
+    -- The device keeps at most 4 keys per app (APPCONFIG_MAX_ENTRIES in
+    -- PicoDeck's src/os/appconfig.h) and drops a fifth with only a warning.
     function config.set(k, v)
-        if v == nil or v == "" then F.config[k] = nil else F.config[k] = v end
+        if v == nil or v == "" then F.config[k] = nil return end
+        if F.config[k] == nil then
+            local n = 0
+            for _ in pairs(F.config) do n = n + 1 end
+            if n >= 4 then return end
+        end
+        F.config[k] = v
     end
     function config.save() return true end
 

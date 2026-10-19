@@ -95,7 +95,7 @@ return {
         T.eq(app.screenName, "home"); T.ok(F.hasLog("picosurf: starters 6"))
         local b = app.store:bookmarks()
         T.eq(#b, 6); T.eq(b[1].url, "gemini://geminiprotocol.net/"); T.eq(b[6].url, "gopher://gopher.floodgap.com/7/v2/vs")
-        T.eq(F.config.starters, "1")
+        T.eq(app.prefs.starters, true); T.ok(F.files["/data/net.picodeck.picosurf/prefs.json"], "prefs.json saved")
         F.menu["Settings"](); steps(app, 1)
         T.ok(F.screenText():find("work without one", 1, true))
     end,
@@ -112,6 +112,28 @@ return {
         local again = App.new(F.pc, "net.picodeck.picosurf")
         again:start()
         T.eq(#again.store:bookmarks(), 6, "a deleted starter stays deleted")
+    end,
+    starters_and_search_survive_a_full_config = function() -- the device keeps 4 config keys
+        local F = fakepc.new()
+        F.config.proxy_url, F.config.token, F.config.font, F.config.images = "https://p.test", "tok", "sans", "inline"
+        local first = App.new(F.pc, "net.picodeck.picosurf")
+        first:start()
+        T.eq(#first.store:bookmarks(), 6, "the starters")
+        first.store:removeBookmark(1)
+        first:savePref("search", "gopher://gopher.floodgap.com/7/v2/vs")
+        local again = App.new(F.pc, "net.picodeck.picosurf")
+        again:start()
+        T.eq(#again.store:bookmarks(), 5, "a deleted starter stays deleted")
+        T.eq(again.cfg.search, "gopher://gopher.floodgap.com/7/v2/vs")
+        T.eq(F.config.starters, nil); T.eq(F.config.search, nil)
+    end,
+    settings_saved_in_config_by_an_older_version_still_count = function()
+        local F = fakepc.new()
+        F.config.proxy_url, F.config.starters, F.config.search = "https://p.test", "1", "off"
+        local app = App.new(F.pc, "net.picodeck.picosurf")
+        app:start()
+        T.eq(#app.store:bookmarks(), 0, "starters were already offered")
+        T.eq(app.cfg.search, "")
     end,
     settings_save_url_and_token_and_warn_on_http = function() -- Review Focus 5
         local app, F = boot({ config = false })
@@ -168,11 +190,11 @@ return {
         for _ = 1, 4 do F.press("down") end
         F.inputs = { "gopher://gopher.floodgap.com/7/v2/vs" }
         F.press("enter"); steps(app, 1)
-        T.eq(F.lastPrompt, "Search URL:"); T.eq(F.config.search, "gopher://gopher.floodgap.com/7/v2/vs")
+        T.eq(F.lastPrompt, "Search URL:"); T.eq(app.prefs.search, "gopher://gopher.floodgap.com/7/v2/vs")
         T.ok(F.screenText():find("Search: gopher.floodgap.com/7/v2/vs", 1, true))
         F.inputs = { "  " }
         F.press("enter"); steps(app, 1)
-        T.eq(F.config.search, "off"); T.eq(app.cfg.search, "")
+        T.eq(app.prefs.search, "off"); T.eq(app.cfg.search, "")
         T.ok(F.screenText():find("Search: (off)", 1, true))
         F.press("esc"); steps(app, 1)
         go(app, F, "two words")

@@ -41,12 +41,21 @@ end
 
 local SCREENS = { "home", "page", "image", "settings", "loading", "message", "cert" }
 
+-- prefs.json: the settings past the four keys the device's config store can
+-- hold (APPCONFIG_MAX_ENTRIES): {starters = true, search = "<url>" or "off"},
+-- every field optional.
+local function validPrefs(p)
+    return (p.starters == nil or type(p.starters) == "boolean")
+        and (p.search == nil or type(p.search) == "string")
+end
+
 -- pc: the picocalc API (a fake in host tests); appId: app.json's id.
 function App.new(pc, appId, appDir)
     local self = setmetatable({ pc = pc, appDir = appDir or "/apps/picosurf" }, App)
     self.disp, self.ui, self.input, self.sys = pc.display, pc.ui, pc.input, pc.sys
     self.store = store.new(pc.fs, pc.json, "/data/" .. appId)
     self.pins = tofu.new(self.store)
+    self.prefs = self.store:load("prefs.json", {}, validPrefs)
     self.decode = keys.decoder(pc.input)
     self.screens = {}
     for _, name in ipairs(SCREENS) do self.screens[name] = require("src.screens." .. name) end
@@ -63,8 +72,9 @@ function App:loadConfig()
         proxyUrl = c.get("proxy_url") or "", token = c.get("token") or "", font = fonts.normalize(c.get("font")),
         images = c.get("images") == "inline" and "inline" or "links",
     }
-    -- "off" turns search off (Settings -> Search left empty); nothing saved means TLGS.
-    local search = c.get("search")
+    -- "off" turns search off (Settings -> Search left empty); nothing saved means
+    -- TLGS. Kept in prefs.json; an older version saved it in config.
+    local search = self.prefs.search or c.get("search")
     self.cfg.search = search == nil and App.SEARCH or (search == "off" and "" or search)
     local fontChanged = self:loadFont()
     self.oldProxyWarned = nil -- a changed setting, say a newer proxy: pictures are tried again
@@ -105,6 +115,18 @@ end
 function App:saveConfig(key, value)
     self.pc.config.set(key, value)
     self.pc.config.save()
+    if self:loadConfig() then self:relayout() end
+end
+
+-- Saves prefs.json (see validPrefs).
+function App:savePrefs()
+    self.store:save("prefs.json", self.prefs)
+end
+
+-- Saves a setting kept in prefs.json and applies it, as saveConfig does.
+function App:savePref(key, value)
+    self.prefs[key] = value
+    self:savePrefs()
     if self:loadConfig() then self:relayout() end
 end
 
@@ -176,13 +198,13 @@ function App:start()
     self:show("home")
 end
 
--- The starter bookmarks, once per device (small web spec 9.4).
+-- The starter bookmarks, once per device (small web spec 9.4). The flag is
+-- kept in prefs.json; an older version saved it in config.
 function App:addStarters()
-    local c = self.pc.config
-    if c.get("starters") ~= nil then return end
+    if self.prefs.starters or self.pc.config.get("starters") ~= nil then return end
     local added = self.store:appendBookmarks(App.STARTERS)
-    c.set("starters", "1")
-    c.save()
+    self.prefs.starters = true
+    self:savePrefs()
     self:log("starters", added)
 end
 

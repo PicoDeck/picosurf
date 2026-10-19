@@ -414,7 +414,8 @@ Files live in `/data/net.picodeck.picosurf/`.
 
 | File | Contents | Cap |
 |---|---|---|
-| `config.json` (`picocalc.config`) | `proxy_url`, `token`, `font` (`sans`, `serif`, `scientifica`, `8x12` or `system`), `images`, `search` (a URL, or `off`), `starters` | — |
+| `config.json` (`picocalc.config`) | `proxy_url`, `token`, `font` (`sans`, `serif`, `scientifica`, `8x12` or `system`), `images`: the device keeps at most 4 keys per app | — |
+| `prefs.json` | `{"starters": true, "search": "<url>" or "off"}`, the settings past those four (an older version saved them in `config.json`, which is still read) | — |
 | `known_hosts.json` | `{"host:port": {fp, first, seen}}`, pinned Gemini certificates (small web design 6) | 500 |
 | `bookmarks.json` | `[{url, title}]`, newest first | 200 |
 | `history.json` | `[{url, title}]`, newest first, revisits move to the top | 100 |

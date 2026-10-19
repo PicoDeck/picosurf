@@ -77,7 +77,7 @@ function S.key(app, action)
             app.input.clearState()
             if v then
                 v = trim(v)
-                app:saveConfig("search", v == "" and "off" or v)
+                app:savePref("search", v == "" and "off" or v)
             end
         else
             app:ping()

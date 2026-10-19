@@ -356,8 +356,9 @@ Used for Gopher text files and Gemini `text/*` other than `text/gemini`.
 
 ### 9.4 Starter bookmarks
 
-- **When:** once, when config key `starters` is missing. Then it is set to
-  `1`, so a device that already has bookmarks gets them too, exactly once.
+- **When:** once, when `prefs.json` has no `starters` (nor config, where an
+  older version kept it). Then it is set, so a device that already has
+  bookmarks gets them too, exactly once.
 - **Where:** appended after the existing bookmarks, skipping any URL already
   there, within the 200 cap.
 
@@ -572,7 +573,7 @@ New items:
   - 6.1: the scheme dispatch of section 2.1.
   - 6.2: the Settings rows and the `cert` screen.
   - 6.4: F1 rules (section 9.2); F4 and F5 on native pages.
-  - 6.6: `known_hosts.json`, and config keys `search` and `starters`.
+  - 6.6: `known_hosts.json`, and `prefs.json` (`search`, `starters`).
   - 6.7: gemlog feeds.
   - 6.8: no forced first-run Settings.
   - 6.9: the clock wait only for proxy requests.
