@@ -629,4 +629,30 @@ return {
         T.eq(app.screenName, "message")
         assertSystemText(F, "error")
     end,
+    the_loading_text_is_centered = function()
+        local app, F = boot()
+        local d = F.pc.display
+        F.holding = true
+        go(app, F, "a-rather-long-host-name-for-the-loading-screen.test/")
+        T.eq(app.screenName, "loading")
+        local found = 0
+        for i, t in ipairs(F.texts) do
+            if t:sub(1, 8) == "Loading " then
+                found = found + 1
+                T.eq(F.textXs[i], (320 - d.textWidth(t)) // 2, "loading message x")
+            end
+        end
+        T.eq(found, 1, "one loading message drawn")
+        -- The WiFi wait message is centered too.
+        local app2, F2 = boot()
+        F2.netStatus = 0
+        F2.holding = true
+        go(app2, F2, "a.test/")
+        T.eq(app2.screenName, "loading")
+        for i, t in ipairs(F2.texts) do
+            if t == "Connecting to WiFi..." then
+                T.eq(F2.textXs[i], (320 - F2.pc.display.textWidth(t)) // 2, "wifi message x")
+            end
+        end
+    end,
 }

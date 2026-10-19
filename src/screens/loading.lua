@@ -78,8 +78,10 @@ function S.draw(app)
         end
         app.ui.drawSpinner(160, 120, 10, L.frame)
     end
-    d.drawText(th.margin, 150, msg:sub(1, theme.uiCols(th)), th.fg, false)
-    d.drawText(th.margin, 166, sub, th.dim, false)
+    -- Centered under the spinner (design 2026-10-20).
+    msg = msg:sub(1, theme.uiCols(th))
+    d.drawText((320 - d.textWidth(msg)) // 2, 140, msg, th.fg, false)
+    d.drawText((320 - d.textWidth(sub)) // 2, 156, sub, th.dim, false)
     app.ui.drawFooter("Esc cancel", "")
 end
 
