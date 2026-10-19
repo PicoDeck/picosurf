@@ -97,7 +97,9 @@ function S.draw(app)
     local left = url.host(p.url)
     if ps.digits ~= "" then left = "Link: " .. ps.digits .. "_" end
     -- A page that advertises a feed (X-Feed-Url) hints that F5 subscribes.
-    local right = (p.feedUrl and "F5 feed  " or "") .. ps:percent() .. "% " .. (MODE_LETTER[p.mode] or "F")
+    -- Gemini and Gopher pages have no mode, so no letter (small web spec 9.5).
+    local letter = p.mode == "native" and "" or (" " .. (MODE_LETTER[p.mode] or "F"))
+    local right = (p.feedUrl and "F5 feed  " or "") .. ps:percent() .. "%" .. letter
     local room = (320 - 16) // th.uiCw - #right - 1
     d.setFont(th.ui)
     app.ui.drawFooter(left:sub(1, math.min(36, room)), right)

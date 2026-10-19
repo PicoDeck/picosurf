@@ -17,7 +17,7 @@ local KEYCODE = {
 function M.new()
     local F = {
         texts = {}, textFonts = {}, textXs = {}, logs = {}, toasts = {}, menu = {}, events = {}, inputs = {}, confirms = {},
-        requests = {}, pending = {}, config = {}, conns = 0, made = {}, decoded = {},
+        requests = {}, pending = {}, config = {}, conns = 0, made = {}, decoded = {}, scaled = {},
         rects = {}, imageDraws = {}, fontFiles = {}, missingFonts = {}, nextFontId = 4,
         netStatus = 1, synced = true, epoch = 1792000000, ms = 0,
     }
@@ -277,6 +277,22 @@ function M.new()
         function img:draw(x, y, _, src)
             F.imageDraws[#F.imageDraws + 1] = { data = data, x = x, y = y, src = src }
         end
+        return img
+    end
+
+    -- getInfo and loadScaled read a file the app wrote, "JPEG:<w>x<h>...".
+    -- F.failScaled makes loadScaled raise, as out of memory.
+    function graphics.image.getInfo(path)
+        local w, h = (F.files[path] or ""):match("^JPEG:(%d+)x(%d+)")
+        if not w then error("not a recognized image") end
+        return { width = math.tointeger(tonumber(w)), height = math.tointeger(tonumber(h)), format = "jpeg" }
+    end
+    function graphics.image.loadScaled(path, w, h)
+        if F.failScaled then error("out of memory") end
+        F.scaled[#F.scaled + 1] = { path = path, w = w, h = h }
+        local img = {}
+        function img:getSize() return w, h end
+        function img:draw(x, y) F.imageDraws[#F.imageDraws + 1] = { data = "scaled", x = x, y = y } end
         return img
     end
 

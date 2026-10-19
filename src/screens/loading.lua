@@ -23,7 +23,9 @@ local function begin(app, L)
         L.state = "wifi"
         return
     end
-    if app.base and app.base.tls and not app.sys.getClock().synced then
+    -- Only proxy requests check certificate dates (small web spec 9.1).
+    local web = url.scheme(L.url) == "http" or url.scheme(L.url) == "https"
+    if web and app.base and app.base.tls and not app.sys.getClock().synced then
         L.state, L.retryAt = "clock", app.sys.getTimeMs() + RETRY_MS
         return
     end

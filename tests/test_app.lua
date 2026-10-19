@@ -2,7 +2,7 @@ local T = require("tests.t")
 local fakepc = require("tests.fakepc")
 local App = require("src.app")
 
-local A = "# A\n\nSee the docs [1] and more [2].\n=> https://b.test/ [1] the docs\n=> gemini://g.test/ [2] more\n=> https://a.test/cat.jpg [IMG] Cat\n"
+local A = "# A\n\nSee the docs [1] and more [2].\n=> https://b.test/ [1] the docs\n=> spartan://s.test/ [2] more\n=> https://a.test/cat.jpg [IMG] Cat\n"
 local function longBody()
     local parts = { "# Long" }
     for i = 1, 100 do parts[#parts + 1] = "line " .. i end
@@ -177,7 +177,7 @@ return {
         local app, F = boot()
         go(app, F, "a.test/")
         F.type("2"); F.press("enter"); steps(app, 1)
-        T.ok(F.hasToast("gemini:// links aren't supported yet"))
+        T.ok(F.hasToast("spartan:// links aren't supported yet"))
         T.eq(app.screenName, "page")
     end,
     opens_and_closes_an_image = function()

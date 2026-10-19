@@ -11,10 +11,15 @@ local fonts = require("src.fonts")
 local theme = require("src.theme")
 local feeds = require("src.feeds")
 local inline = require("src.inline")
+local native = require("src.native")
+local tofu = require("src.tofu")
+local gopher = require("src.gopher")
 
 local App = {}
 App.__index = App
 App.MAX_BACK, App.MAX_CACHE = 20, 3
+App.NO_PROXY = "Web pages need a proxy - set one in Settings"
+App.PROMPT_MAX = 48 -- a Gemini input prompt, cut to ui.textInput's width
 
 -- A copy of a page's inline box heights, for a Back entry or Reload (inline images spec 5.6).
 local function copyBoxes(b)
@@ -24,13 +29,14 @@ local function copyBoxes(b)
     return c
 end
 
-local SCREENS = { "home", "page", "image", "settings", "loading", "message" }
+local SCREENS = { "home", "page", "image", "settings", "loading", "message", "cert" }
 
 -- pc: the picocalc API (a fake in host tests); appId: app.json's id.
 function App.new(pc, appId, appDir)
     local self = setmetatable({ pc = pc, appDir = appDir or "/apps/picosurf" }, App)
     self.disp, self.ui, self.input, self.sys = pc.display, pc.ui, pc.input, pc.sys
     self.store = store.new(pc.fs, pc.json, "/data/" .. appId)
+    self.pins = tofu.new(self.store)
     self.decode = keys.decoder(pc.input)
     self.screens = {}
     for _, name in ipairs(SCREENS) do self.screens[name] = require("src.screens." .. name) end
@@ -221,14 +227,46 @@ function App:pump()
         m.done(m.result)
         self.dirty = true
     end
+    self.pins:flush(self.sys.getTimeMs())
     local notes = self.store.notes
     while #notes > 0 do self:toast(table.remove(notes, 1), self.ui.TOAST_WARNING) end
 end
 
--- Starts a proxy request; done(result) runs from the main loop. fit: "WxH"
--- for an inline picture (nil for pages and full-screen images).
+-- What native.get needs from the app. The pins are loaded here, in the
+-- main loop, so the check inside the firmware's callbacks reads no file.
+function App:nativeEnv()
+    self.pins:hosts()
+    return {
+        tcp = self.pc.tcp, pins = self.pins, now = function() return self:now() end,
+        post = function(fn) self.inbox[#self.inbox + 1] = { done = fn } end,
+        log = function(...) self:log(...) end,
+    }
+end
+
+-- Starts a request by the target's scheme (small web spec 2.1): Gemini and
+-- Gopher natively, http(s) through the proxy. done(result) runs from the
+-- main loop. fit: "WxH" for an inline picture (nil for pages and full-screen
+-- images). Returns a handle {cancel(), received()}, or nil and a reason.
 function App:request(target, as, done, fit)
-    if not self.pool then return nil, self.baseErr or "Set the proxy URL in Settings" end
+    local scheme = url.scheme(target)
+    if scheme == "gemini" or scheme == "gopher" then
+        local outer = {}
+        outer.cur = native.get(self:nativeEnv(), target, as, function(r)
+            if r.kind ~= "redirect" then return done(r) end
+            -- A Gemini redirect to another scheme goes through this dispatch.
+            local h, err = self:request(r.url, as, done, fit)
+            if not h then return done({ kind = "error", message = err }) end
+            outer.cur = h
+        end)
+        return {
+            cancel = function() outer.cur.cancel() end,
+            received = function() return outer.cur.received() end,
+        }
+    end
+    if scheme ~= "http" and scheme ~= "https" then
+        return nil, (scheme or "That") .. ":// links aren't supported yet"
+    end
+    if not self.pool then return nil, self.baseErr or App.NO_PROXY end
     local handle, err = self.pool:get(proxy.getPath(self.base, target, as, fit), proxy.headers(self.cfg.token),
         function(ok, status, body, headers)
             self.inbox[#self.inbox + 1] = { done = done, result = proxy.interpret(ok, status, body, headers) }
@@ -293,6 +331,10 @@ end
 
 function App:showResult(target, mode, r, opts)
     opts = opts or {}
+    if r.kind == "input" then return self:askInput(r, opts) end
+    if r.kind == "certchanged" then
+        return self:show("cert", { change = r, retry = function() self:open(target, opts) end })
+    end
     if r.kind == "gemini" or r.kind == "text" then
         local finalUrl = r.finalUrl or target
         local page, err = self:buildPage(finalUrl, mode, r, opts.restore)
@@ -309,6 +351,15 @@ function App:showResult(target, mode, r, opts)
     end
     if r.kind == "image" then
         local where = r.finalUrl or target
+        if r.native then
+            local img, err = self:loadNativeImage(r.body)
+            if not img then
+                self:log("error", "-", err .. " " .. where)
+                return self:fail(err)
+            end
+            if opts.back then table.remove(self.back) end
+            return self:show("image", { url = where, image = img })
+        end
         local ok, img = pcall(self.pc.graphics.image.loadFromBuffer, r.body)
         if not ok or not img then
             self:log("error", "-", "image decode failed " .. where)
@@ -319,6 +370,56 @@ function App:showResult(target, mode, r, opts)
     end
     self:log("error", r.status or "-", r.message)
     self:fail(r.message, function() self:open(target, opts) end, r.status)
+end
+
+-- A server asked for text (small web spec 5): back to the screen the load
+-- started from, ask, and open the URL again with the answer.
+function App:askInput(r, opts)
+    self:show(self.page and "page" or "home")
+    local prompt = r.prompt ~= "" and r.prompt or "Input:"
+    self:log("prompt", "input")
+    local text = self.ui.textInput(prompt:sub(1, App.PROMPT_MAX))
+    self.input.clearState()
+    self.dirty = true
+    if not text then return end
+    self:open(url.withInput(r.url, text), opts)
+end
+
+-- The certificate review's Enter (small web spec 6): trust the new
+-- certificate and load the page again.
+function App:acceptCert(change, retry)
+    self.pins:accept(change.host, change.port, change.new, self:now())
+    self.pins:flush(self.sys.getTimeMs())
+    self:log("cert", "accepted", change.host .. ":" .. change.port)
+    retry()
+end
+
+-- A full-size picture from Gemini or Gopher (small web spec 9.7), through a
+-- temporary file so a large one loads scaled to fit 320x320. Returns the
+-- image, or nil and the reason.
+function App:loadNativeImage(body)
+    local fs, g = self.pc.fs, self.pc.graphics.image
+    local path = self.store:path("image.tmp")
+    local f = fs.open(path, "w")
+    if not f then return nil, "Could not decode the image" end
+    fs.write(f, body)
+    fs.close(f)
+    local okInfo, info = pcall(g.getInfo, path)
+    local w, h = okInfo and info and info.width, okInfo and info and info.height
+    local ok, img = false, nil
+    if w and h and w > 0 and h > 0 then
+        if w <= 320 and h <= 320 then
+            ok, img = pcall(g.loadFromBuffer, body)
+        elseif w >= h then
+            ok, img = pcall(g.loadScaled, path, 320, math.max(1, h * 320 // w))
+        else
+            ok, img = pcall(g.loadScaled, path, math.max(1, w * 320 // h), 320)
+        end
+    end
+    fs.delete(path)
+    if ok and img then return img end
+    if w and h then return nil, "Image too large to show (" .. w .. "x" .. h .. ")" end
+    return nil, "Could not decode the image"
 end
 
 -- Runs fn (parsing or layout) under pcall. On an error, most likely out of
@@ -583,6 +684,7 @@ function App:toggleMode()
     local p = self.page
     -- A feed's article list has no reader or full mode.
     if not p or p.isFeedList then return end
+    if p.mode == "native" then return self:toast("Reader mode is for web pages") end
     self:open(p.url, { mode = p.mode == "full" and "reader" or "full", push = false })
 end
 
@@ -606,9 +708,13 @@ end
 function App:open(target, opts)
     opts = opts or {}
     local scheme = url.scheme(target)
-    if scheme ~= "http" and scheme ~= "https" then
+    local web = scheme == "http" or scheme == "https"
+    if not web and scheme ~= "gemini" and scheme ~= "gopher" then
         return self:toast((scheme or "That") .. ":// links aren't supported yet", self.ui.TOAST_WARNING)
     end
+    if web and not self.pool then return self:toast(self.baseErr or App.NO_PROXY, self.ui.TOAST_WARNING) end
+    local blocked = scheme == "gopher" and gopher.blocked(target)
+    if blocked then return self:toast(blocked, self.ui.TOAST_WARNING) end
     self:cancelRefresh() -- frees the connections a refresh holds
     local mode = opts.mode or "reader"
     local cached = self:cacheGet(target, mode)
