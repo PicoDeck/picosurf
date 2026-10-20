@@ -95,7 +95,7 @@ function Pool:send(path, headers, state, mayRetry, fresh)
     local function drain()
         while not state.finished and conn:getBytesAvailable() > 0 do
             local d = conn:read(READ_CHUNK)
-            if not d then break end
+            if not d or d == "" then break end -- a boundary read can come back empty
             state.total = state.total + #d
             if state.total > M.MAX_BODY then
                 pool:finish(state, false)

@@ -83,6 +83,19 @@ return {
         F.service()
         T.eq(called, false); T.eq(pool.active, 0)
     end,
+    an_empty_read_breaks_the_drain = function()
+        -- A broken read that keeps returning "" while bytes are reported
+        -- available must not spin the drain forever in the service pass;
+        -- the request completes with whatever was collected (here: nothing).
+        local F, pool = setup(ok200("hello"))
+        local got
+        pool:get("/v1/ping", {}, function(...) got = table.pack(...) end)
+        local c = F.made[#F.made]
+        function c:read() return "" end
+        F.service()
+        T.eq(got[1], true); T.eq(got[3], "")
+        T.eq(pool.active, 0)
+    end,
     allows_two_requests_at_a_time = function()
         local _, pool = setup(ok200())
         T.ok(pool:get("/a", {}, function() end))
