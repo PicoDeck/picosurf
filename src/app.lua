@@ -879,7 +879,15 @@ function App:subscribe()
             local feed, isNew = feeds.subscribe(index, r.finalUrl or p.url, (r.title ~= "" and r.title) or nil)
             if not feed then return self:toast(isNew, self.ui.TOAST_ERROR) end
             if not isNew then return self:toast("Already subscribed") end
-            self:applyFeed(feed, r)
+            -- applyFeed can raise out of memory on a huge body; the
+            -- subscription is already in the index, so keep it — a refresh
+            -- will try the body again.
+            local ok, err = pcall(self.applyFeed, self, feed, r)
+            if not ok then
+                self.store:saveFeedIndex()
+                self:log("error", "-", tostring(err))
+                return self:toast("Feed saved but failed to parse", self.ui.TOAST_ERROR)
+            end
             self:log("subscribed", feed.id, feed.url, "unread=" .. feed.unread)
             self:toast("Subscribed: " .. feed.title, self.ui.TOAST_SUCCESS)
         end,
@@ -981,8 +989,11 @@ function App:pumpRefresh()
             R.active, R.done = R.active - 1, R.done + 1
             if r.kind == "gemini" then
                 -- Unsubscribed meanwhile: saving would recreate its file.
-                if self:feedById(feed.id) then self:applyFeed(feed, r) end
-                R.ok = R.ok + 1
+                -- applyFeed can raise out of memory parsing a huge body;
+                -- that is one failed feed, not the end of the refresh.
+                local ok, err = true, nil
+                if self:feedById(feed.id) then ok, err = pcall(self.applyFeed, self, feed, r) end
+                if ok then R.ok = R.ok + 1 else refreshFailed(self, R, nil, tostring(err)) end
             else
                 refreshFailed(self, R, r.status, feedFailure(r)) -- a "clock" result too
             end

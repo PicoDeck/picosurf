@@ -141,6 +141,41 @@ return {
         T.ok(F.hasLog("picosurf: refresh done ok=2 failed=0"))
         T.ok(F.hasToast("Feeds refreshed"))
     end,
+    a_feed_that_fails_to_parse_does_not_stick_the_refresh = function()
+        -- applyFeed parses up to 512 KB of gemtext; on device it can raise
+        -- out of memory. That must count as one failed feed, not abort the
+        -- whole refresh.
+        local app, F = boot()
+        subscribe(app, F, "blog.test/")
+        subscribe(app, F, "news.test/")
+        F.press("f2"); steps(app, 1)
+        local App = require("src.app")
+        local real = App.applyFeed
+        local raised = false
+        App.applyFeed = function(self, feed, r)
+            if not raised then raised = true; error("out of memory") end
+            return real(self, feed, r)
+        end
+        F.press("f5"); steps(app)
+        App.applyFeed = real
+        T.eq(app.refresh, nil, "the refresh is over")
+        T.ok(F.hasLog("picosurf: refresh done ok=1 failed=1"))
+        T.ok(F.hasToast("1 feed failed to refresh"))
+    end,
+    a_feed_that_fails_to_parse_on_subscribe_still_subscribes = function()
+        local app, F = boot()
+        go(app, F, "blog.test/")
+        local App = require("src.app")
+        local real = App.applyFeed
+        App.applyFeed = function() error("out of memory") end
+        F.press("f5"); steps(app)
+        App.applyFeed = real
+        T.ok(F.hasToast("Feed saved but failed to parse"))
+        -- The subscription persists across a restart and refreshes later.
+        local again = App.new(F.pc, "net.picodeck.picosurf")
+        again:start()
+        T.eq(#again.store:feedIndex().feeds, 1, "the subscription survives")
+    end,
     esc_cancels_a_refresh_instead_of_quitting = function()
         local app, F = boot()
         subscribe(app, F, "blog.test/")
