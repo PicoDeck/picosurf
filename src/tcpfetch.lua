@@ -50,7 +50,13 @@ function M.get(tcp, spec, done)
         if st.finished then return end
         st.connected = true
         if spec.check then
-            local ok, stop = spec.check(conn)
+            -- A check that raises must not escape into the firmware's
+            -- callback: finish() would never run, leaking the socket and
+            -- hanging the request.
+            local pok, ok, stop = pcall(spec.check, conn)
+            if not pok then
+                return finish({ ok = false, err = "check failed: " .. tostring(ok), connected = true })
+            end
             if not ok then return finish({ stopped = stop }) end
         end
         if conn:write(spec.request) < 0 then

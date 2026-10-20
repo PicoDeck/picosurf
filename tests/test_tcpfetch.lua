@@ -48,6 +48,19 @@ return {
         T.eq(saw, "aa"); T.eq(#F.tcpMade[1].writes, 0)
         T.eq(results[1].stopped.kind, "certchanged"); T.eq(F.tcpMade[1].state, "released")
     end,
+    a_check_that_raises_fails_the_request_without_sending = function()
+        -- An exception in the check must not escape into the firmware's
+        -- callback: the socket would leak and the request hang.
+        local results, _, F = fetch({ fp = "aa", reply = function() error("must not send") end }, {
+            check = function() error("pins table corrupt") end,
+        })
+        F.service()
+        T.eq(#results, 1)
+        T.eq(results[1].ok, false)
+        T.ok(tostring(results[1].err):find("pins table corrupt", 1, true), tostring(results[1].err))
+        T.eq(#F.tcpMade[1].writes, 0, "nothing sent")
+        T.eq(F.tcpMade[1].state, "released", "the socket is closed")
+    end,
     connect_failures_report_the_firmware_reason = function()
         local results, _, F = fetch({ connectErr = "Mongoose error: TLS handshake failed" })
         F.service()
