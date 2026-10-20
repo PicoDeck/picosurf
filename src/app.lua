@@ -56,6 +56,7 @@ function App.new(pc, appId, appDir)
     self.store = store.new(pc.fs, pc.json, "/data/" .. appId)
     self.pins = tofu.new(self.store)
     self.prefs = self.store:load("prefs.json", {}, validPrefs)
+    self:migrateLegacyConfig()
     self.decode = keys.decoder(pc.input)
     self.screens = {}
     for _, name in ipairs(SCREENS) do self.screens[name] = require("src.screens." .. name) end
@@ -63,6 +64,25 @@ function App.new(pc, appId, appDir)
     self.dirty = true
     self:loadConfig()
     return self
+end
+
+-- Moves the legacy config keys into prefs.json, freeing their slots: the
+-- device's config store holds only 4 keys per app (APPCONFIG_MAX_ENTRIES)
+-- and silently drops a fifth, so an upgraded device with "starters" and
+-- "search" still in config could never save a new setting again.
+function App:migrateLegacyConfig()
+    local c, moved = self.pc.config, false
+    if c.get("starters") ~= nil then
+        if self.prefs.starters == nil then self.prefs.starters = true end
+        c.set("starters", nil)
+        moved = true
+    end
+    if c.get("search") ~= nil then
+        if self.prefs.search == nil then self.prefs.search = c.get("search") end
+        c.set("search", nil)
+        moved = true
+    end
+    if moved then self:savePrefs(); c.save() end
 end
 
 -- Returns whether the font in use changed (see loadFont).

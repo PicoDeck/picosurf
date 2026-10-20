@@ -135,6 +135,25 @@ return {
         T.eq(#app.store:bookmarks(), 0, "starters were already offered")
         T.eq(app.cfg.search, "")
     end,
+    legacy_config_keys_move_to_prefs_and_free_their_slots = function()
+        -- A device from an older version: all 4 config slots taken, two by
+        -- the legacy keys. They move to prefs.json so new settings can save.
+        local F = fakepc.new()
+        F.config.proxy_url, F.config.token = "https://p.test", "tok"
+        F.config.starters, F.config.search = "1", "gopher://g.test/7/s"
+        local app = App.new(F.pc, "net.picodeck.picosurf")
+        app:start()
+        T.eq(F.config.starters, nil); T.eq(F.config.search, nil)
+        T.eq(app.cfg.search, "gopher://g.test/7/s", "the legacy search still applies")
+        T.eq(#app.store:bookmarks(), 0, "starters were already offered")
+        app:saveConfig("font", "8x12")
+        T.eq(F.config.font, "8x12", "a freed slot takes the new setting")
+        -- And the migration survives a restart (prefs.json, not config).
+        local again = App.new(F.pc, "net.picodeck.picosurf")
+        again:start()
+        T.eq(again.cfg.search, "gopher://g.test/7/s")
+        T.eq(#again.store:bookmarks(), 0, "starters are not offered again")
+    end,
     settings_save_url_and_token_and_warn_on_http = function() -- Review Focus 5
         local app, F = boot({ config = false })
         F.menu["Settings"](); steps(app, 1)
