@@ -7,7 +7,11 @@ export function fakeFetch(routes: Record<string, Route>) {
     calls.push({ url, init });
     const route = routes[url];
     if (route === undefined) throw new TypeError("fetch failed", { cause: new Error(`no route for ${url}`) });
-    return typeof route === "function" ? route(url, init) : route.clone();
+    if (typeof route === "function") return route(url, init);
+    // A fresh copy, not route.clone(): a clone's body is one branch of a tee, and cancelling it
+    // waits for the other branch (the stored route) to be cancelled too, which never happens.
+    const body = route.body && (await route.clone().arrayBuffer());
+    return new Response(body, { status: route.status, statusText: route.statusText, headers: route.headers });
   };
   return Object.assign(fn, { calls });
 }
