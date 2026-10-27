@@ -8,7 +8,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Unit tests
         run: |
           sudo apt-get update > /dev/null
@@ -21,7 +21,7 @@ jobs:
           [ "$VER" = "$TAG" ] || { echo "app.json version $VER does not match tag $TAG"; exit 1; }
       - name: Package
         run: zip -9 -r "picosurf-${GITHUB_REF_NAME#v}.zip" app.json main.lua src fonts
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: picosurf-*.zip
           generate_release_notes: true
