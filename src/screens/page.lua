@@ -147,7 +147,9 @@ function S.key(app, action, arg)
     elseif action == "backspace" or action == "esc" then
         return app:goBack()
     elseif action == "f1" then
-        return app:promptGo()
+        -- Start from this page's URL (Del clears it); one too long for the box starts it empty.
+        local u = app.page.url
+        return app:promptGo(#u <= app.INPUT_MAX and u or nil)
     elseif action == "f2" then
         return app:goHome()
     elseif action == "f3" then

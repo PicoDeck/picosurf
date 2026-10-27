@@ -20,6 +20,7 @@ App.__index = App
 App.MAX_BACK, App.MAX_CACHE = 20, 3
 App.NO_PROXY = "Web pages need a proxy - set one in Settings"
 App.PROMPT_MAX = 48 -- a Gemini input prompt, cut to ui.textInput's width
+App.INPUT_MAX = 127 -- the longest text ui.textInput holds
 App.SEARCH = "gemini://tlgs.one/search"
 -- Added once, after the user's own bookmarks (small web spec 9.4).
 App.STARTERS = {
@@ -755,7 +756,7 @@ end
 function App:editUrl()
     local p = self.page
     if not p or self.screenName ~= "page" then return self:promptGo() end
-    if #p.url > 127 then return self:toast("URL too long to edit", self.ui.TOAST_WARNING) end
+    if #p.url > App.INPUT_MAX then return self:toast("URL too long to edit", self.ui.TOAST_WARNING) end
     self:promptGo(p.url)
 end
 

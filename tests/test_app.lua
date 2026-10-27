@@ -28,6 +28,7 @@ local ROUTES = {
     ["https://long.test/"] = { title = "Long", body = longBody() },
     ["https://cut.test/"] = { title = "Cut", body = "# Cut\n", truncated = true },
     ["https://plain.test/"] = { type = "text/plain; charset=us-ascii", mode = false, body = "just text\n" },
+    ["https://a.test/" .. string.rep("x", 120)] = { title = "Too long", body = "# Too long\n" },
 }
 
 local function boot(opts)
@@ -374,6 +375,22 @@ return {
         T.eq(app.page.url, "https://a.test/")
         F.inputs = { "b.test/" }
         F.menu["Edit URL"](); steps(app)
+        T.eq(app.page.url, "https://b.test/")
+    end,
+    f1_starts_from_the_page_url = function()
+        local app, F = boot()
+        go(app, F, "a.test/")
+        T.eq(F.lastDefault, nil, "nothing to start from on Home")
+        go(app, F, "b.test/")
+        T.eq(F.lastDefault, "https://a.test/")
+        T.eq(app.page.url, "https://b.test/")
+    end,
+    f1_starts_empty_on_a_url_too_long_for_the_box = function()
+        local app, F = boot()
+        go(app, F, "a.test/" .. string.rep("x", 120))
+        T.eq(app.page.url, "https://a.test/" .. string.rep("x", 120))
+        go(app, F, "b.test/")
+        T.eq(F.lastDefault, nil)
         T.eq(app.page.url, "https://b.test/")
     end,
     scrolls_and_shows_the_position = function()

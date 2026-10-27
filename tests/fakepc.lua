@@ -105,7 +105,10 @@ function M.new()
     end
     function ui.drawListItem(_, _, _, text, selected) record((selected and "[>] " or "[ ] ") .. text) end
     function ui.drawSpinner() end
-    function ui.textInput(prompt) F.lastPrompt = prompt; return table.remove(F.inputs, 1) or nil end
+    function ui.textInput(prompt, default)
+        F.lastPrompt, F.lastDefault = prompt, default
+        return table.remove(F.inputs, 1) or nil
+    end
     function ui.confirm(msg)
         F.lastConfirm = msg
         local v = table.remove(F.confirms, 1)

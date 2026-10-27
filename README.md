@@ -21,7 +21,7 @@ Read Gemini and Gopher, the web and RSS/Atom feeds on a [PicoDeck](https://picod
 | Enter | open the selected link | open |
 | digits, then Enter | open link `[n]` (Backspace deletes a digit, Esc clears the number) | |
 | Backspace / Esc | back (on the first page: Home) | Esc: quit, or stop a refresh |
-| F1 | go to a URL, or search | go to a URL, or search |
+| F1 | go to a URL, or search: the box starts with this page's URL (Del clears it) | go to a URL, or search |
 | F2 | Home | |
 | F3 | bookmark / remove bookmark | |
 | F4 | reader / full page (web pages) | |
